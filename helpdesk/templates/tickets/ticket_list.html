@@ -1,0 +1,112 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="surface p-3 mb-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <div>
+            <h2 class="mb-0 fw-bold">Tickets</h2>
+            <div class="ticket-meta mt-1">Search by Ticket ID and filter tickets by a start and end date.</div>
+        </div>
+        <a href="{% url 'create_ticket' %}" class="btn btn-primary">New Ticket</a>
+    </div>
+
+    <form method="get" class="row g-2 align-items-center mt-3">
+        <div class="col-12 col-md-6 col-lg-4">
+            <input
+                type="text"
+                name="q"
+                value="{{ query|default:'' }}"
+                class="form-control"
+                placeholder="Search Ticket ID (e.g. BFC-XXXX)"
+            >
+        </div>
+        <div class="col-12 col-md-3 col-lg-2">
+            <input
+                type="date"
+                name="date_from"
+                value="{{ date_from|default:'' }}"
+                class="form-control"
+                title="Start date"
+            >
+        </div>
+        <div class="col-12 col-md-3 col-lg-2">
+            <input
+                type="date"
+                name="date_to"
+                value="{{ date_to|default:'' }}"
+                class="form-control"
+                title="End date"
+            >
+        </div>
+        <div class="col-12 col-md-auto d-flex gap-2">
+            <button type="submit" class="btn btn-outline-primary">Search</button>
+            {% if has_active_filters %}
+                <a href="{% url 'ticket_list' %}" class="btn btn-outline-secondary">Clear</a>
+            {% endif %}
+        </div>
+    </form>
+</div>
+
+{% if tickets %}
+    <div class="d-grid gap-3">
+        {% for ticket in tickets %}
+            <div class="surface p-3 ticket-card ticket-accent-{{ ticket.status }}" data-ticket-id="{{ ticket.id }}">
+                <div class="d-flex justify-content-between align-items-start gap-3">
+                    <div class="flex-grow-1">
+                        <div class="d-flex flex-wrap align-items-center gap-2">
+                            <span class="status-dot status-dot-{{ ticket.status }}" aria-hidden="true"></span>
+                            <a class="text-decoration-none fw-bold" href="{% url 'ticket_detail' ticket.id %}">
+                                {{ ticket.subject }}
+                            </a>
+                            <span class="badge-soft chip-muted ticket-id">{{ ticket.ticket_id }}</span>
+                        </div>
+
+                        <div class="ticket-meta mt-2">
+                            <span class="me-2">By: {{ ticket.created_by.username }}</span>
+                            <span class="me-2">Assigned: {{ ticket.assigned_to|default:"Unassigned" }}</span>
+                            {% if ticket.department %}
+                                <span class="me-2">Dept: {{ ticket.department }}</span>
+                            {% endif %}
+                            <span>Created: {{ ticket.created_at|date:"M d, Y H:i" }}</span>
+                            <span
+                                class="ms-2 text-danger fw-semibold{% if not ticket.has_unread_messages %} d-none{% endif %}"
+                                data-unread-indicator
+                            >{% if ticket.has_unread_messages %}New message{% endif %}</span>
+                        </div>
+
+                        <div class="text-muted small mt-2">{{ ticket.description|truncatewords:22 }}</div>
+                    </div>
+                     <div class="d-flex flex-wrap gap-2 justify-content-end">
+                        {% if ticket.is_department_ticket and ticket.created_by_id != user.id and ticket.assigned_to_id != user.id %}
+                            <span class="badge-soft chip-primary">Department Queue</span>
+                        {% endif %}
+                        <span class="badge-soft {% if ticket.priority == 'high' or ticket.priority == 'critical' or ticket.priority == 'urgent' %}chip-danger{% elif ticket.priority == 'medium' %}chip-warning{% else %}chip-primary{% endif %}">
+                            {{ ticket.get_priority_display }}
+                        </span>
+                        <span class="badge-soft {% if ticket.status == 'resolved' %}chip-success{% elif ticket.status == 'new' or ticket.status == 'open' %}chip-primary{% elif ticket.status == 'acknowledged' %}chip-primary{% elif ticket.status == 'in_progress' or ticket.status == 'waiting_on_user' or ticket.status == 'waiting_on_third_party' %}chip-warning{% elif ticket.status == 'closed' %}chip-danger{% else %}chip-muted{% endif %}">
+                            {{ ticket.get_status_display }}
+                        </span>
+                        <a href="{% url 'ticket_detail' ticket.id %}" class="btn btn-sm btn-outline-secondary">Open</a>
+                        {% if ticket.can_claim %}
+                            <form method="post" action="{% url 'ticket_claim' ticket.id %}">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-sm btn-primary">Take Ownership</button>
+                            </form>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+{% else %}
+    <div class="surface p-4 text-center">
+        {% if has_active_filters %}
+            <p class="text-muted mb-0">No tickets found for the selected search filters.</p>
+        {% else %}
+            <p class="text-muted mb-3">No tickets are available for you yet.</p>
+            <a href="{% url 'create_ticket' %}" class="btn btn-primary">Create Your First Ticket</a>
+        {% endif %}
+    </div>
+{% endif %}
+{% endblock %}

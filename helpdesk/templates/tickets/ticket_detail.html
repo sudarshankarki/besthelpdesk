@@ -1,0 +1,799 @@
+{% extends 'base.html' %}
+
+{% block title %}Ticket Detail{% endblock %}
+
+{% block content %}
+<div class="surface p-3 mb-3">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+        <div>
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                <h3 class="mb-0 fw-bold">{{ ticket.subject }}</h3>
+                <span class="badge-soft chip-muted ticket-id">{{ ticket.ticket_id }}</span>
+            </div>
+            <div class="ticket-meta mt-2">
+                {% if can_view_requester_info %}
+                    <span>
+                        By
+                        <a class="fw-semibold text-decoration-none" data-bs-toggle="collapse" href="#requester-info" role="button" aria-expanded="false" aria-controls="requester-info">
+                            {{ ticket.created_by.username }}
+                        </a>
+                    </span>
+                {% else %}
+                    <span>By {{ ticket.created_by.username }}</span>
+                {% endif %}
+                <span class="mx-1">•</span>
+                <span>{{ ticket.created_at|date:"M d, Y H:i" }}</span>
+                {% if ticket.department %}
+                    <span class="mx-1">•</span>
+                    <span>{{ ticket.department }}</span>
+                {% endif %}
+                <span class="mx-1">•</span>
+                <span>Assigned: {{ ticket.assigned_to|default:"Unassigned" }}</span>
+            </div>
+        </div>
+        <div class="d-flex flex-wrap gap-2 justify-content-end align-items-center">
+            <span class="badge-soft {% if ticket.priority == 'high' or ticket.priority == 'critical' or ticket.priority == 'urgent' %}chip-danger{% elif ticket.priority == 'medium' %}chip-warning{% else %}chip-primary{% endif %}">
+                {{ ticket.get_priority_display }}
+            </span>
+            <span class="badge-soft {% if ticket.status == 'resolved' %}chip-success{% elif ticket.status == 'new' or ticket.status == 'open' %}chip-primary{% elif ticket.status == 'acknowledged' %}chip-primary{% elif ticket.status == 'in_progress' or ticket.status == 'waiting_on_user' or ticket.status == 'waiting_on_third_party' %}chip-warning{% elif ticket.status == 'closed' %}chip-danger{% else %}chip-muted{% endif %}">
+                {{ ticket.get_status_display }}
+            </span>
+            {% if user.is_staff or user.is_superuser or user.is_itsupport %}
+                <a href="{% url 'support_queue' %}" class="btn btn-sm btn-outline-secondary">Back</a>
+            {% else %}
+                <a href="{% url 'ticket_list' %}" class="btn btn-sm btn-outline-secondary">Back</a>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+            {% if can_view_requester_info %}
+<div class="collapse" id="requester-info">
+    <div class="card surface border-0 mb-3">
+        <div class="card-body">
+            <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+                <div>
+                    <h6 class="mb-0 fw-bold">Requester Info</h6>
+                    <div class="ticket-meta mt-1">Requester contact and profile details.</div>
+                </div>
+                <div class="d-flex flex-wrap gap-2">
+                    {% if ticket.created_by.email %}
+                        <a class="btn btn-sm btn-outline-secondary" href="mailto:{{ ticket.created_by.email }}">Email</a>
+                    {% endif %}
+                    {% if ticket.created_by.phone_number %}
+                        <a class="btn btn-sm btn-outline-secondary" href="tel:{{ ticket.created_by.phone_number }}">Call</a>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="mt-3 row g-3">
+                <div class="col-md-6">
+                    <div class="ticket-meta">Email</div>
+                    <div class="fw-semibold">
+                        {% if ticket.created_by.email %}
+                            <a class="text-decoration-none" href="mailto:{{ ticket.created_by.email }}">{{ ticket.created_by.email }}</a>
+                        {% else %}
+                            -
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="ticket-meta">Mobile</div>
+                    <div class="fw-semibold">
+                        {% if ticket.created_by.phone_number %}
+                            <a class="text-decoration-none" href="tel:{{ ticket.created_by.phone_number }}">{{ ticket.created_by.phone_number }}</a>
+                        {% else %}
+                            -
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="ticket-meta">Department</div>
+                    <div class="fw-semibold">{{ ticket.created_by.department|default:"-" }}</div>
+                </div>
+                <div class="col-md-6">
+                    <div class="ticket-meta">Branch</div>
+                    <div class="fw-semibold">{{ ticket.created_by.branch|default:"-" }}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<div class="card surface border-0 mb-3">
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-6">
+                <div class="ticket-meta">Assigned To</div>
+                <div class="fw-semibold">{{ ticket.assigned_to|default:"Unassigned" }}</div>
+            </div>
+            <div class="col-md-6">
+                <div class="ticket-meta">Department</div>
+                <div class="fw-semibold">{{ ticket.department|default:"-" }}</div>
+            </div>
+            <div class="col-md-6">
+                <div class="ticket-meta">Request Type</div>
+                <div class="fw-semibold">{{ ticket.get_request_type_display|default:"-" }}</div>
+            </div>
+            <div class="col-md-6">
+                <div class="ticket-meta">Impact</div>
+                <div class="fw-semibold">{{ ticket.get_impact_display|default:"-" }}</div>
+            </div>
+            <div class="col-md-6">
+                <div class="ticket-meta">Urgency</div>
+                <div class="fw-semibold">{{ ticket.get_urgency_display|default:"-" }}</div>
+            </div>
+            <div class="col-md-6">
+                <div class="ticket-meta">Resolved At</div>
+                <div class="fw-semibold">{{ ticket.resolved_at|date:"M d, Y H:i"|default:"-" }}</div>
+            </div>
+            <div class="col-md-6">
+                <div class="ticket-meta">Closed At</div>
+                <div class="fw-semibold">{{ ticket.closed_at|date:"M d, Y H:i"|default:"-" }}</div>
+            </div>
+            <div class="col-md-6">
+                <div class="ticket-meta">Time to Resolve</div>
+                <div class="fw-semibold">{{ ticket.formatted_ttr }}</div>
+            </div>
+            {% if ticket.resolved_note %}
+            <div class="col-12">
+                <div class="ticket-meta">Resolution Details</div>
+                <div class="fw-semibold">{{ ticket.resolved_note|linebreaksbr }}</div>
+            </div>
+            {% endif %}
+            {% if ticket.closed_note %}
+            <div class="col-12">
+                <div class="ticket-meta">Closure Details</div>
+                <div class="fw-semibold">{{ ticket.closed_note|linebreaksbr }}</div>
+            </div>
+            {% endif %}
+        </div>
+        <hr>
+        <h5 class="fw-bold">Description</h5>
+        <p class="mb-0">{{ ticket.description|linebreaks }}</p>
+    </div>
+</div>
+
+{% if ticket.image %}
+<div class="card surface border-0 mb-3">
+    <div class="card-header bg-white border-0"><h6 class="mb-0 fw-bold">Attachment</h6></div>
+    <div class="card-body">
+        <img src="{% url 'ticket_image_view' ticket.id %}" alt="Ticket attachment" class="img-fluid rounded border">
+        <div class="mt-2">
+            <a class="btn btn-sm btn-outline-secondary" href="{% url 'ticket_image_download' ticket.id %}">Download</a>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<div class="d-flex flex-wrap gap-2">
+    {% if can_update_ticket %}
+        <a href="{% url 'ticket_update' ticket.id %}" class="btn btn-primary">Update Ticket</a>
+    {% endif %}
+    {% if can_claim_ticket %}
+        <form method="post" action="{% url 'ticket_claim' ticket.id %}">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-primary">Take Ownership</button>
+        </form>
+    {% endif %}
+</div>
+
+{% if can_manage_chat_privacy %}
+<div class="card surface border-0 mt-4">
+    <div class="card-header bg-white border-0">
+        <h5 class="mb-0 fw-bold">Chat Privacy</h5>
+    </div>
+    <div class="card-body">
+        <form method="post" action="{% url 'ticket_chat_privacy_update' ticket.id %}">
+            {% csrf_token %}
+            <div class="form-check form-switch mb-2">
+                {{ chat_privacy_form.chat_is_private }}
+                <label class="form-check-label" for="{{ chat_privacy_form.chat_is_private.id_for_label }}">
+                    {{ chat_privacy_form.chat_is_private.label }}
+                </label>
+            </div>
+            {% if chat_privacy_form.chat_is_private.help_text %}
+                <div class="form-text mb-3">{{ chat_privacy_form.chat_is_private.help_text }}</div>
+            {% endif %}
+            {% for error in chat_privacy_form.chat_is_private.errors %}
+                <div class="text-danger small mb-2">{{ error }}</div>
+            {% endfor %}
+
+            {% if ticket.chat_is_private %}
+                <div class="small text-muted mb-3">
+                    Private chat is active. Only the requester and the assigned user can open the conversation until privacy is turned off.
+                </div>
+            {% endif %}
+
+            <button type="submit" class="btn btn-outline-primary">Save Chat Privacy</button>
+        </form>
+    </div>
+</div>
+{% elif ticket.chat_is_private %}
+<div class="card surface border-0 mt-4">
+    <div class="card-body">
+        <div class="text-muted">
+            This ticket chat is private. Only the requester and the assigned user can open it until privacy is turned off.
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<div class="card surface border-0 mt-4">
+    <div class="card-header bg-white border-0">
+        <h5 class="mb-0 fw-bold">Assignment History</h5>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Assigned To</th>
+                        <th>Assigned By</th>
+                        <th>Assigned At</th>
+                        <th>Unassigned At</th>
+                        <th>Duration</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for log in assignment_logs %}
+                        <tr>
+                            <td>{{ log.assigned_to|default:"-" }}</td>
+                            <td>{{ log.assigned_by|default:"-" }}</td>
+                            <td>{{ log.assigned_at|date:"M d, Y H:i"|default:"-" }}</td>
+                            <td>{{ log.unassigned_at|date:"M d, Y H:i"|default:"Current" }}</td>
+                            <td>{{ log.formatted_duration|default:"-" }}</td>
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td colspan="5" class="text-center text-muted py-3">No assignment history yet.</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="card surface border-0 mt-4">
+    <div class="card-header bg-white border-0">
+        <h5 class="mb-0 fw-bold">Ticket Chat</h5>
+    </div>
+    <div class="card-body">
+        {% if not can_view_chat %}
+            <div class="text-muted">
+                This ticket chat is private. Only the requester and the assigned user can view messages, attachments, and audio call controls.
+            </div>
+        {% else %}
+        <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+            <button id="call-start" class="btn btn-success btn-sm" type="button" {% if chat_locked %}disabled{% endif %}>Start Audio Call</button>
+            <button id="call-hangup" class="btn btn-danger btn-sm" type="button" disabled>Hang Up</button>
+            <small id="call-status" class="text-muted">Call: {% if chat_locked %}unavailable{% else %}idle{% endif %}</small>
+        </div>
+        {% if chat_locked %}
+            <div class="small text-muted mb-3">{{ chat_locked_message }}</div>
+        {% endif %}
+        <audio id="call-remote-audio" autoplay></audio>
+        <audio id="call-local-audio" autoplay muted style="display:none;"></audio>
+
+        <div id="chat-log" class="border rounded p-3 mb-3 bg-light" style="height: 320px; overflow-y: auto;">
+            {% for msg in chat_messages %}
+                <div class="mb-2">
+                    <strong>{{ msg.author.username }}</strong>
+                    <small class="text-muted">({{ msg.created_at|date:"M d, Y H:i" }})</small>
+                    <div>{{ msg.body|linebreaksbr }}</div>
+                    {% if msg.attachment %}
+                        {% with ct=msg.attachment.content_type|default:"" %}
+                            {% if ct|slice:":6" == "image/" %}
+                                <div class="mt-2">
+                                    <img
+                                        src="{% url 'ticket_attachment_view' ticket.id msg.attachment.id %}"
+                                        alt="{{ msg.attachment.filename }}"
+                                        class="img-fluid rounded border"
+                                        style="max-height: 240px;"
+                                    >
+                                    <div class="d-flex flex-wrap align-items-center gap-2 mt-1">
+                                        <a class="small text-decoration-none" href="{% url 'ticket_attachment_download' ticket.id msg.attachment.id %}">Download</a>
+                                        <span class="text-muted small">{{ msg.attachment.filename }} ({{ msg.attachment.size|filesizeformat }})</span>
+                                    </div>
+                                </div>
+                            {% else %}
+                                <div class="mt-1">
+                                    <a href="{% url 'ticket_attachment_download' ticket.id msg.attachment.id %}">
+                                        {{ msg.attachment.filename }}
+                                    </a>
+                                    <small class="text-muted">({{ msg.attachment.size|filesizeformat }})</small>
+                                </div>
+                            {% endif %}
+                        {% endwith %}
+                    {% endif %}
+                </div>
+            {% empty %}
+                <p class="text-muted mb-0">No messages yet. Start the conversation.</p>
+            {% endfor %}
+        </div>
+        <div class="input-group">
+            <input type="text" id="chat-message-input" class="form-control" placeholder="{% if chat_locked %}Chat unavailable for closed ticket{% else %}Type message...{% endif %}" {% if chat_locked %}disabled{% endif %}>
+            <button id="chat-message-submit" class="btn btn-primary" type="button" {% if chat_locked %}disabled{% endif %}>Send</button>
+        </div>
+        <div class="input-group mt-2">
+            <input type="file" id="chat-file-input" class="form-control" {% if chat_locked %}disabled{% endif %}>
+            <button id="chat-file-submit" class="btn btn-outline-primary" type="button" {% if chat_locked %}disabled{% endif %}>Upload</button>
+        </div>
+        <form id="csrf-form" style="display: none;">{% csrf_token %}</form>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    (function () {
+        const ticketId = "{{ ticket.id }}";
+        const currentUsername = "{{ user.username|escapejs }}";
+        const chatLocked = {% if chat_locked %}true{% else %}false{% endif %};
+        const iceServers = JSON.parse("{{ webrtc_ice_servers_json|escapejs }}");
+        const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+        const chatLog = document.getElementById("chat-log");
+        const input = document.getElementById("chat-message-input");
+        const submit = document.getElementById("chat-message-submit");
+        const fileInput = document.getElementById("chat-file-input");
+        const fileSubmit = document.getElementById("chat-file-submit");
+        const uploadUrl = "{% url 'ticket_attachment_upload' ticket.id %}";
+        const markSeenUrl = "{% url 'ticket_chat_mark_seen' ticket.id %}";
+        const callStart = document.getElementById("call-start");
+        const callHangup = document.getElementById("call-hangup");
+        const callStatus = document.getElementById("call-status");
+        const remoteAudio = document.getElementById("call-remote-audio");
+        const localAudio = document.getElementById("call-local-audio");
+        let markSeenRequest = null;
+
+        if (!chatLog || !input || !submit || !fileInput || !fileSubmit || !callStart || !callHangup || !callStatus || !remoteAudio || !localAudio) {
+            return;
+        }
+
+        const socket = new WebSocket(`${protocol}://${window.location.host}/ws/tickets/${ticketId}/`);
+        const callSocket = new WebSocket(`${protocol}://${window.location.host}/ws/tickets/${ticketId}/call/`);
+
+        function getCsrfToken() {
+            const input = document.querySelector("#csrf-form input[name='csrfmiddlewaretoken']");
+            return input ? input.value : "";
+        }
+
+        function escapeHtml(text) {
+            return String(text)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+        function formatBytes(bytes) {
+            const num = Number(bytes);
+            if (!Number.isFinite(num) || num <= 0) return "";
+            const units = ["B", "KB", "MB", "GB", "TB"];
+            let value = num;
+            let idx = 0;
+            while (value >= 1024 && idx < units.length - 1) {
+                value /= 1024;
+                idx += 1;
+            }
+            const precision = value >= 10 || idx === 0 ? 0 : 1;
+            return `${value.toFixed(precision)} ${units[idx]}`;
+        }
+
+        function buildMessagePreview(text, maxLength) {
+            const preview = String(text || "").trim().replace(/\s+/g, " ");
+            if (!preview) return "";
+            if (preview.length <= maxLength) return preview;
+            return `${preview.slice(0, maxLength - 3).trimEnd()}...`;
+        }
+
+        function showChatToast(title, message) {
+            if (typeof window.supportDeskShowToast !== "function") return;
+            window.supportDeskShowToast({
+                title,
+                message,
+                level: "info",
+                delay: 4000,
+            });
+        }
+
+        function markChatSeen() {
+            if (markSeenRequest) return markSeenRequest;
+            markSeenRequest = fetch(markSeenUrl, {
+                method: "POST",
+                headers: {
+                    "X-CSRFToken": getCsrfToken(),
+                },
+            })
+                .catch(function () {
+                    return null;
+                })
+                .finally(function () {
+                    markSeenRequest = null;
+                });
+            return markSeenRequest;
+        }
+
+        function appendMessage(data) {
+            if (data && data.id && document.querySelector(`[data-message-id="${data.id}"]`)) {
+                return;
+            }
+            const row = document.createElement("div");
+            row.className = "mb-2";
+            if (data && data.id) {
+                row.dataset.messageId = data.id;
+            }
+
+            const safeBody = escapeHtml(data.body || "").replace(/\n/g, "<br>");
+            let attachmentHtml = "";
+            if (data.attachment && data.attachment.id) {
+                const safeName = escapeHtml(data.attachment.filename || "download");
+                const downloadUrl = data.attachment.download_url || `/tickets/${ticketId}/attachments/${data.attachment.id}/download/`;
+                const viewUrl = data.attachment.view_url || `/tickets/${ticketId}/attachments/${data.attachment.id}/view/`;
+                const ct = String(data.attachment.content_type || "").toLowerCase();
+                const sizeText = formatBytes(data.attachment.size);
+
+                if (ct.startsWith("image/")) {
+                    attachmentHtml = `
+                        <div class="mt-2">
+                            <img src="${viewUrl}" alt="${safeName}" class="img-fluid rounded border" style="max-height: 240px;">
+                            <div class="d-flex flex-wrap align-items-center gap-2 mt-1">
+                                <a class="small text-decoration-none" href="${downloadUrl}">Download</a>
+                                <span class="text-muted small">${safeName}${sizeText ? ` (${escapeHtml(sizeText)})` : ""}</span>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    attachmentHtml = `<div class="mt-1"><a href="${downloadUrl}">${safeName}</a>${sizeText ? ` <small class="text-muted">(${escapeHtml(sizeText)})</small>` : ""}</div>`;
+                }
+            }
+            row.innerHTML = `<strong>${escapeHtml(data.author || "")}</strong> <small class="text-muted">(${escapeHtml(data.created_at || "")})</small><div>${safeBody}</div>${attachmentHtml}`;
+            chatLog.appendChild(row);
+            chatLog.scrollTop = chatLog.scrollHeight;
+        }
+
+        socket.onmessage = function (event) {
+            const data = JSON.parse(event.data);
+            if (data && data.type === "error") {
+                showChatToast("Chat unavailable", data.error || "Chat is unavailable for this ticket.");
+                return;
+            }
+            appendMessage(data);
+            if (data && data.author && data.author !== currentUsername) {
+                markChatSeen();
+            }
+        };
+
+        socket.onclose = function (event) {
+            const row = document.createElement("p");
+            row.className = "text-danger mb-0";
+            if (event.code === 4001) {
+                row.textContent = "Chat disconnected: login session not available. Please log in again.";
+            } else if (event.code === 4003) {
+                row.textContent = "Chat disconnected: you do not have permission for this ticket.";
+            } else {
+                row.textContent = `Chat disconnected (code ${event.code}). Refresh the page to reconnect.`;
+            }
+            chatLog.appendChild(row);
+        };
+
+        function sendMessage() {
+            if (chatLocked || submit.disabled) return;
+            const body = input.value.trim();
+            if (!body) return;
+            socket.send(JSON.stringify({ body }));
+            showChatToast("Message sent", buildMessagePreview(body, 100));
+            input.value = "";
+        }
+
+        submit.addEventListener("click", sendMessage);
+        input.addEventListener("keypress", function (event) {
+            if (event.key === "Enter") {
+                event.preventDefault();
+                sendMessage();
+            }
+        });
+        markChatSeen();
+
+        async function uploadFile() {
+            if (chatLocked || fileSubmit.disabled) return;
+            const file = fileInput.files[0];
+            if (!file) return;
+
+            fileSubmit.disabled = true;
+            try {
+                const form = new FormData();
+                form.append("file", file);
+
+                const resp = await fetch(uploadUrl, {
+                    method: "POST",
+                    headers: {
+                        "X-CSRFToken": getCsrfToken(),
+                    },
+                    body: form,
+                });
+                const data = await resp.json();
+                if (data && data.ok && data.event) {
+                    appendMessage(data.event);
+                    showChatToast("Attachment sent", `${file.name} was added to the chat.`);
+                    fileInput.value = "";
+                } else {
+                    alert((data && data.error) ? data.error : "Upload failed");
+                }
+            } catch (e) {
+                alert("Upload failed");
+            } finally {
+                fileSubmit.disabled = false;
+            }
+        }
+
+        fileSubmit.addEventListener("click", uploadFile);
+
+        // ---- WebRTC audio call (signaling via Channels) ----
+        let mySender = null;
+        let localStream = null;
+        let pc = null;
+        let localReady = false;
+        let negotiated = false;
+        let incoming = false;
+        let lastPeerSender = null;
+        let pendingOffer = null;
+        let ignoreIncomingUntil = 0;
+        let ignoreIncomingSender = null;
+        const callStartDefaultText = callStart.textContent;
+        const callHangupDefaultText = callHangup.textContent;
+
+        function setCallStatus(text) {
+            callStatus.textContent = `Call: ${text}`;
+        }
+
+        function setIncomingState(isIncoming) {
+            incoming = Boolean(isIncoming);
+            if (incoming) {
+                callStart.classList.remove("btn-success");
+                callStart.classList.add("btn-call-incoming");
+                callStart.textContent = "Incoming Call";
+
+                callHangup.disabled = false;
+                callHangup.textContent = "Decline";
+            } else {
+                callStart.classList.remove("btn-call-incoming");
+                callStart.classList.add("btn-success");
+                callStart.textContent = callStartDefaultText;
+
+                callHangup.textContent = callHangupDefaultText;
+                if (!localReady) {
+                    callHangup.disabled = true;
+                }
+            }
+        }
+
+        async function ensureLocalAudio() {
+            if (localStream) return localStream;
+            localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+            localAudio.srcObject = localStream;
+            return localStream;
+        }
+
+        function ensurePeerConnection() {
+            if (pc) return pc;
+            pc = new RTCPeerConnection({
+                iceServers: iceServers,
+            });
+            pc.onicecandidate = (event) => {
+                if (event.candidate) {
+                    callSocket.send(JSON.stringify({ type: "ice", candidate: event.candidate }));
+                }
+            };
+            pc.ontrack = (event) => {
+                remoteAudio.srcObject = event.streams[0];
+            };
+            pc.onconnectionstatechange = () => {
+                const state = pc.connectionState;
+                if (state === "connected") setCallStatus("connected");
+                if (state === "disconnected") setCallStatus("disconnected");
+                if (state === "failed") setCallStatus("failed");
+                if (state === "closed") setCallStatus("closed");
+            };
+            return pc;
+        }
+
+        async function startCall() {
+            if (chatLocked || callStart.disabled) return;
+            if (!window.isSecureContext) {
+                alert("Microphone requires HTTPS (or localhost). Open the site as https://helpdesk.bfcl.com/");
+                return;
+            }
+
+            callStart.disabled = true;
+            try {
+                const isIncomingAnswer = incoming;
+                setIncomingState(false);
+                const stream = await ensureLocalAudio();
+                const conn = ensurePeerConnection();
+                for (const track of stream.getTracks()) {
+                    conn.addTrack(track, stream);
+                }
+                localReady = true;
+                callHangup.disabled = false;
+                setCallStatus("waiting for peer...");
+                if (!isIncomingAnswer) {
+                    callSocket.send(JSON.stringify({ type: "ring" }));
+                }
+                callSocket.send(JSON.stringify({ type: "ready" }));
+                if (lastPeerSender) {
+                    await maybeMakeOffer(lastPeerSender);
+                }
+                if (pendingOffer) {
+                    const offer = pendingOffer;
+                    pendingOffer = null;
+                    await conn.setRemoteDescription(offer);
+                    const answer = await conn.createAnswer();
+                    await conn.setLocalDescription(answer);
+                    negotiated = true;
+                    callSocket.send(JSON.stringify({ type: "answer", sdp: conn.localDescription }));
+                    setCallStatus("connecting...");
+                }
+            } catch (e) {
+                callStart.disabled = false;
+                alert("Could not access microphone. Check browser permission.");
+            }
+        }
+
+        function stopCall(sendSignal) {
+            const now = Date.now();
+            const peerSender = lastPeerSender;
+            const wasIncoming = incoming;
+
+            negotiated = false;
+            localReady = false;
+            lastPeerSender = null;
+            pendingOffer = null;
+            setCallStatus("idle");
+            setIncomingState(false);
+            callStart.disabled = false;
+            callHangup.disabled = true;
+
+            if (sendSignal && wasIncoming && peerSender) {
+                ignoreIncomingSender = peerSender;
+                ignoreIncomingUntil = now + 2000;
+            }
+
+            if (sendSignal) {
+                try { callSocket.send(JSON.stringify({ type: "hangup" })); } catch (e) {}
+            }
+            if (pc) {
+                try { pc.close(); } catch (e) {}
+                pc = null;
+            }
+            if (localStream) {
+                for (const track of localStream.getTracks()) track.stop();
+                localStream = null;
+            }
+            remoteAudio.srcObject = null;
+            localAudio.srcObject = null;
+        }
+
+        async function maybeMakeOffer(remoteSender) {
+            if (!localReady || negotiated) return;
+            if (!mySender || !remoteSender) return;
+            if (mySender === remoteSender) return;
+
+            // Deterministic "caller": lower sender id makes the offer.
+            if (String(mySender) > String(remoteSender)) return;
+
+            const conn = ensurePeerConnection();
+            const offer = await conn.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: false });
+            await conn.setLocalDescription(offer);
+            negotiated = true;
+            callSocket.send(JSON.stringify({ type: "offer", sdp: conn.localDescription }));
+            setCallStatus("calling...");
+        }
+
+        callStart.addEventListener("click", startCall);
+        callHangup.addEventListener("click", () => stopCall(true));
+
+        callSocket.onmessage = async (event) => {
+            const data = JSON.parse(event.data);
+            if (data.type === "error") {
+                setCallStatus("unavailable");
+                showChatToast("Chat unavailable", data.error || "Chat is unavailable for this ticket.");
+                return;
+            }
+            if (data.type === "hello") {
+                mySender = data.sender;
+                if (localReady && lastPeerSender) {
+                    await maybeMakeOffer(lastPeerSender);
+                }
+                return;
+            }
+            if (data.type !== "event") return;
+            const ev = data.event;
+            const sender = data.sender;
+            if (sender && mySender && sender === mySender) return;
+
+            const now = Date.now();
+            if (ignoreIncomingSender && now >= ignoreIncomingUntil) {
+                ignoreIncomingSender = null;
+            }
+            if (
+                !localReady
+                && sender
+                && ignoreIncomingSender
+                && sender === ignoreIncomingSender
+                && now < ignoreIncomingUntil
+                && (ev === "ready" || ev === "offer")
+            ) {
+                return;
+            }
+
+            if (ev === "joined") {
+                if (sender) lastPeerSender = sender;
+                if (localReady) await maybeMakeOffer(sender);
+                return;
+            }
+            if (ev === "left" || ev === "hangup") {
+                if (pc || localStream || incoming || pendingOffer) stopCall(false);
+                return;
+            }
+            if (ev === "ready") {
+                if (sender) lastPeerSender = sender;
+                if (!localReady) {
+                    setIncomingState(true);
+                    setCallStatus("incoming call - click Start Audio Call");
+                }
+                await maybeMakeOffer(sender);
+                return;
+            }
+            if (ev === "offer") {
+                if (sender) lastPeerSender = sender;
+                if (!localReady) {
+                    // If you receive an offer first, you still need to Start to grant mic permission.
+                    setCallStatus("incoming call - click Start Audio Call");
+                    setIncomingState(true);
+                    pendingOffer = data.sdp;
+                    return;
+                }
+                setIncomingState(false);
+                const conn = ensurePeerConnection();
+                await conn.setRemoteDescription(data.sdp);
+                const answer = await conn.createAnswer();
+                await conn.setLocalDescription(answer);
+                negotiated = true;
+                callSocket.send(JSON.stringify({ type: "answer", sdp: conn.localDescription }));
+                setCallStatus("connecting...");
+                return;
+            }
+            if (ev === "answer") {
+                if (!pc) return;
+                setIncomingState(false);
+                await pc.setRemoteDescription(data.sdp);
+                setCallStatus("connecting...");
+                return;
+            }
+            if (ev === "ice") {
+                if (!pc) return;
+                try {
+                    await pc.addIceCandidate(data.candidate);
+                } catch (e) {
+                    // Ignore (can happen during renegotiation / timing)
+                }
+            }
+        };
+
+        callSocket.onclose = function (event) {
+            if (event.code === 4001) {
+                setCallStatus("disconnected (login expired)");
+            } else if (event.code === 4003) {
+                setCallStatus("disconnected (no permission)");
+            } else {
+                setCallStatus("disconnected");
+            }
+        };
+    })();
+</script>
+{% endblock %}

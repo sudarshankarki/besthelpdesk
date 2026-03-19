@@ -1,0 +1,267 @@
+{% extends 'base.html' %}
+
+{% block title %}IT Support Portal{% endblock %}
+
+{% block content %}
+<div class="surface p-3 mb-3">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <div>
+            <h2 class="mb-0 fw-bold">IT Support Portal</h2>
+            <div class="ticket-meta mt-1">
+                {% if has_active_filters %}
+                    Filtered ticket view • Matching tickets: <span class="fw-semibold">{{ total_tickets }}</span>
+                {% else %}
+                    Overview & quick actions • Total tickets: <span class="fw-semibold">{{ total_tickets }}</span>
+                {% endif %}
+            </div>
+        </div>
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+            <span class="badge-soft chip-muted">Assigned to me: {{ my_assigned_tickets }}</span>
+            <a class="btn btn-sm btn-primary" href="{{ support_queue_url }}">Open Queue</a>
+        </div>
+    </div>
+
+    <form method="get" class="d-flex flex-wrap gap-2 align-items-end mt-3">
+        <div>
+            <label for="dashboard-q" class="form-label form-label-sm mb-1">Ticket ID</label>
+            <input
+                id="dashboard-q"
+                type="text"
+                name="q"
+                value="{{ query|default:'' }}"
+                class="form-control form-control-sm"
+                style="min-width: 180px;"
+                placeholder="BFC-..."
+            >
+        </div>
+        <div>
+            <label for="dashboard-created-by" class="form-label form-label-sm mb-1">Creator Username</label>
+            <input
+                id="dashboard-created-by"
+                type="text"
+                name="created_by_username"
+                value="{{ created_by_username|default:'' }}"
+                class="form-control form-control-sm"
+                style="min-width: 160px;"
+                placeholder="Username"
+            >
+        </div>
+        <div>
+            <label for="dashboard-assigned-to" class="form-label form-label-sm mb-1">Assigned Username</label>
+            <input
+                id="dashboard-assigned-to"
+                type="text"
+                name="assigned_to_username"
+                value="{{ assigned_to_username|default:'' }}"
+                class="form-control form-control-sm"
+                style="min-width: 160px;"
+                placeholder="Username"
+            >
+        </div>
+        <div>
+            <label for="dashboard-date-from" class="form-label form-label-sm mb-1">Date From</label>
+            <input
+                id="dashboard-date-from"
+                type="date"
+                name="date_from"
+                value="{{ date_from|default:'' }}"
+                class="form-control form-control-sm"
+            >
+        </div>
+        <div>
+            <label for="dashboard-date-to" class="form-label form-label-sm mb-1">Date To</label>
+            <input
+                id="dashboard-date-to"
+                type="date"
+                name="date_to"
+                value="{{ date_to|default:'' }}"
+                class="form-control form-control-sm"
+            >
+        </div>
+        <div>
+            <label for="dashboard-status" class="form-label form-label-sm mb-1">Status</label>
+            <select id="dashboard-status" name="status" class="form-select form-select-sm" style="min-width: 160px;">
+                <option value="">All Statuses</option>
+                <option value="new" {% if selected_status == "new" %}selected{% endif %}>New</option>
+                <option value="acknowledged" {% if selected_status == "acknowledged" %}selected{% endif %}>Acknowledged</option>
+                <option value="in_progress" {% if selected_status == "in_progress" %}selected{% endif %}>In Progress</option>
+                <option value="waiting_on_user" {% if selected_status == "waiting_on_user" %}selected{% endif %}>Waiting on User</option>
+                <option value="waiting_on_third_party" {% if selected_status == "waiting_on_third_party" %}selected{% endif %}>Waiting on Third Party</option>
+                <option value="resolved" {% if selected_status == "resolved" %}selected{% endif %}>Resolved</option>
+                <option value="closed" {% if selected_status == "closed" %}selected{% endif %}>Closed</option>
+                <option value="cancelled_duplicate" {% if selected_status == "cancelled_duplicate" %}selected{% endif %}>Cancelled / Duplicate</option>
+            </select>
+        </div>
+        <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-sm btn-outline-primary">Apply</button>
+            {% if has_active_filters %}
+                <a class="btn btn-sm btn-outline-secondary" href="{% url 'support_dashboard' %}">Clear</a>
+            {% endif %}
+        </div>
+    </form>
+
+        <div class="row g-2 mt-3">
+            <div class="col-6 col-lg-2">
+            <a class="text-decoration-none" href="{{ new_tickets_url }}">
+                <div class="surface p-2 ticket-card ticket-accent-new">
+                    <div class="ticket-meta">New</div>
+                    <div class="d-flex justify-content-between align-items-end">
+                        <div class="h4 fw-bold mb-0">{{ new_tickets }}</div>
+                        <span class="badge-soft chip-primary">New</span>
+                    </div>
+                </div>
+            </a>
+        </div>
+        <div class="col-6 col-lg-2">
+            <a class="text-decoration-none" href="{{ in_progress_tickets_url }}">
+                <div class="surface p-2 ticket-card ticket-accent-in_progress">
+                    <div class="ticket-meta">In Progress</div>
+                    <div class="d-flex justify-content-between align-items-end">
+                        <div class="h4 fw-bold mb-0">{{ in_progress_tickets }}</div>
+                        <span class="badge-soft chip-warning">Working</span>
+                    </div>
+                </div>
+            </a>
+        </div>
+        <div class="col-6 col-lg-2">
+            <a class="text-decoration-none" href="{{ resolved_tickets_url }}">
+                <div class="surface p-2 ticket-card ticket-accent-resolved">
+                    <div class="ticket-meta">Resolved</div>
+                    <div class="d-flex justify-content-between align-items-end">
+                        <div class="h4 fw-bold mb-0">{{ resolved_tickets }}</div>
+                        <span class="badge-soft chip-success">Done</span>
+                    </div>
+                </div>
+            </a>
+        </div>
+        <div class="col-6 col-lg-2">
+            <a class="text-decoration-none" href="{{ closed_tickets_url }}">
+                <div class="surface p-2 ticket-card ticket-accent-closed">
+                    <div class="ticket-meta">Closed</div>
+                    <div class="d-flex justify-content-between align-items-end">
+                        <div class="h4 fw-bold mb-0">{{ closed_tickets }}</div>
+                        <span class="badge-soft chip-danger">Closed</span>
+                    </div>
+                </div>
+            </a>
+        </div>
+        <div class="col-6 col-lg-2">
+            <div class="surface p-2 ticket-card">
+                <div class="ticket-meta">Unassigned</div>
+                <div class="d-flex justify-content-between align-items-end">
+                    <div class="h4 fw-bold mb-0">{{ unassigned_tickets }}</div>
+                    <span class="badge-soft chip-muted">Needs owner</span>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-2">
+            <div class="surface p-2 ticket-card">
+                <div class="ticket-meta">{% if has_active_filters %}Matching Tickets{% else %}All Tickets{% endif %}</div>
+                <div class="d-flex justify-content-between align-items-end">
+                    <div class="h4 fw-bold mb-0">{{ total_tickets }}</div>
+                    <span class="badge-soft chip-muted">{% if has_active_filters %}Filtered{% else %}All{% endif %}</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3">
+    <div class="col-lg-8">
+        <div class="surface p-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h5 class="fw-bold mb-0">Recent Tickets</h5>
+                <a class="btn btn-sm btn-outline-secondary" href="{{ support_queue_url }}">View all</a>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-sm table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>Ticket</th>
+                            <th class="d-none d-xl-table-cell">Assignee</th>
+                            <th>Status</th>
+                            <th>Priority</th>
+                            <th class="table-actions-cell" style="width: 1%; white-space: nowrap;"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for ticket in recent_tickets %}
+                            <tr data-ticket-id="{{ ticket.id }}">
+                                <td>
+                                    <div class="d-flex flex-column">
+                                        <div class="d-flex flex-wrap align-items-center gap-2">
+                                            <span class="status-dot status-dot-{{ ticket.status }}" aria-hidden="true"></span>
+                                            <a class="fw-bold text-decoration-none" href="{% url 'ticket_detail' ticket.id %}">
+                                                {{ ticket.subject }}
+                                            </a>
+                                            <span class="badge-soft chip-muted ticket-id">{{ ticket.ticket_id }}</span>
+                                        </div>
+                                        <div class="ticket-meta mt-1">
+                                            <span>By {{ ticket.created_by.username }}</span>
+                                            <span class="mx-1">•</span>
+                                            <span>{{ ticket.created_at|date:"M d, Y H:i" }}</span>
+                                            {% if ticket.department %}
+                                                <span class="mx-1">•</span>
+                                                <span>{{ ticket.department }}</span>
+                                            {% endif %}
+                                            <span
+                                                class="mx-1{% if not ticket.has_unread_messages %} d-none{% endif %}"
+                                                data-unread-separator
+                                            >{% if ticket.has_unread_messages %}•{% endif %}</span>
+                                            <span
+                                                class="text-danger fw-semibold{% if not ticket.has_unread_messages %} d-none{% endif %}"
+                                                data-unread-indicator
+                                            >{% if ticket.has_unread_messages %}New message{% endif %}</span>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="d-none d-xl-table-cell">{{ ticket.assigned_to|default:"Unassigned" }}</td>
+                                <td>
+                                    <span class="badge-soft {% if ticket.status == 'resolved' %}chip-success{% elif ticket.status == 'new' or ticket.status == 'open' %}chip-primary{% elif ticket.status == 'acknowledged' %}chip-primary{% elif ticket.status == 'in_progress' or ticket.status == 'waiting_on_user' or ticket.status == 'waiting_on_third_party' %}chip-warning{% elif ticket.status == 'closed' %}chip-danger{% else %}chip-muted{% endif %}">
+                                        {{ ticket.get_status_display }}
+                                    </span>
+                                </td>
+                                <td>
+                                    <span class="badge-soft {% if ticket.priority == 'high' or ticket.priority == 'critical' or ticket.priority == 'urgent' %}chip-danger{% elif ticket.priority == 'medium' %}chip-warning{% else %}chip-primary{% endif %}">
+                                        {{ ticket.get_priority_display }}
+                                    </span>
+                                </td>
+                                <td class="text-end table-actions-cell" style="width: 1%; white-space: nowrap;">
+                                    <div class="table-actions" style="display: inline-flex; justify-content: flex-end; gap: 0.5rem; min-width: 9.5rem;">
+                                        <a class="btn btn-sm btn-outline-secondary" style="white-space: nowrap;" href="{% url 'ticket_detail' ticket.id %}">View</a>
+                                        <a class="btn btn-sm btn-primary" style="white-space: nowrap;" href="{% url 'ticket_update' ticket.id %}">Manage</a>
+                                    </div>
+                                </td>
+                            </tr>
+                        {% empty %}
+                            <tr><td colspan="5" class="text-muted text-center py-4">No tickets found.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <div class="surface p-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h5 class="fw-bold mb-0">Agent Workload</h5>
+                <span class="badge-soft chip-muted">Top 5</span>
+            </div>
+            {% for item in agent_workload %}
+                <a class="d-flex justify-content-between align-items-center py-2 border-bottom text-decoration-none text-reset" href="{{ item.queue_url }}">
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="status-dot status-dot-in_progress" style="opacity: 0.35;" aria-hidden="true"></span>
+                        <div>
+                            <div class="fw-semibold">{{ item.assigned_to__username }}</div>
+                            <div class="ticket-meta">User ID {{ item.assigned_to__id }}</div>
+                        </div>
+                    </div>
+                    <span class="badge-soft chip-primary">{{ item.total }}</span>
+                </a>
+            {% empty %}
+                <p class="text-muted mb-0">No assigned tickets yet.</p>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endblock %}

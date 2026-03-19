@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-7">
+        <div class="surface p-4">
+            <h3>Check Your Email</h3>
+            <p class="mb-2">
+                We have sent a registration link to <strong>{{ email }}</strong>.
+            </p>
+            <p class="mb-0">
+                Please open that link to complete registration, then log in.
+            </p>
+        </div>
+    </div>
+</div>
+{% endblock %}

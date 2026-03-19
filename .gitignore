@@ -1,0 +1,39 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+
+# Python
+venv/
+.venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Django local data
+*.sqlite3
+helpdesk/media/
+helpdesk/staticfiles/
+
+# Local TLS assets
+docker/nginx/certs/*
+!docker/nginx/certs/.gitkeep
+*.pem
+*.key
+*.pfx
+*.p12
+
+# Logs
+*.log
+
+# Editor / local tooling
+.idea/
+.vscode/
+.chrome-docs/
+.edge-docs/
+Thumbs.db
+.DS_Store

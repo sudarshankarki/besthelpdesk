@@ -1,0 +1,385 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login | Secure Access</title>
+    <link rel="stylesheet" href="{% static 'css/local-ui.css' %}">
+    <style>
+        :root {
+            --primary-color: #4361ee;
+            --secondary-color: #3a0ca3;
+            --accent-color: #7209b7;
+            --light-bg: #f8f9fa;
+            --dark-text: #212529;
+            --corporate-green: #1f7a63;
+            --card-pad: clamp(16px, 2.8vw, 24px);
+        }
+
+        body {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            min-height: 100dvh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: clamp(12px, 2vw, 24px);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        .login-container {
+            width: 100%;
+            max-width: 520px;
+        }
+
+        .login-card {
+            background: white;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 15px 30px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease;
+            max-height: calc(100dvh - 24px);
+        }
+
+        .login-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .card-header {
+            background: linear-gradient(to right, var(--primary-color), var(--secondary-color));
+            color: white;
+            text-align: center;
+            padding: clamp(12px, 2.6vw, 20px);
+        }
+
+        .card-body {
+            padding: var(--card-pad);
+            padding-bottom: 0;
+            overflow: auto;
+        }
+
+        .logo {
+            width: 100%;
+            max-width: 280px;
+            height: auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 10px;
+            background: #ffffff;
+            border-radius: 12px;
+            padding: 8px 12px;
+            box-shadow: 0 6px 18px rgba(12, 22, 52, 0.25);
+        }
+
+        .logo img {
+            width: 100%;
+            max-width: 240px;
+            height: auto;
+            display: block;
+        }
+
+        .form-control {
+            padding: 12px 15px;
+            border-radius: 8px;
+            border: 1px solid #ddd;
+            transition: all 0.3s;
+        }
+
+        .form-control:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(67, 97, 238, 0.15);
+        }
+
+        .input-group-text {
+            background: white;
+            border-radius: 8px 0 0 8px;
+            border: 1px solid #ddd;
+            border-right: none;
+        }
+
+        .field-glyph {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 1.5rem;
+            font-size: 0.75rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            color: #4f5d6a;
+        }
+
+        .password-toggle {
+            cursor: pointer;
+            background: white;
+            border: 1px solid #ddd;
+            border-left: none;
+            border-radius: 0 8px 8px 0;
+            min-width: 72px;
+            color: var(--primary-color);
+            font-weight: 600;
+        }
+
+        .password-toggle-label {
+            font-size: 0.85rem;
+        }
+
+        .btn-login {
+            background: linear-gradient(to right, var(--primary-color), var(--secondary-color));
+            color: white;
+            padding: 12px;
+            border-radius: 8px;
+            border: none;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+
+        .btn-login:hover {
+            background: linear-gradient(to right, var(--secondary-color), var(--accent-color));
+            transform: translateY(-2px);
+        }
+
+        .full-bleed {
+            margin-left: calc(-1 * var(--card-pad));
+            margin-right: calc(-1 * var(--card-pad));
+        }
+
+        .full-bleed .btn-login {
+            border-radius: 0;
+        }
+
+        .divider {
+            display: flex;
+            align-items: center;
+            margin: 14px 0;
+        }
+
+        .divider::before, .divider::after {
+            content: "";
+            flex: 1;
+            height: 1px;
+            background: #ddd;
+        }
+
+        .divider span {
+            padding: 0 15px;
+            color: #6c757d;
+            font-size: 14px;
+        }
+
+        .corporate-banner {
+            padding: 22px 16px;
+            border-radius: 0 0 16px 16px;
+            background: var(--corporate-green);
+        }
+
+        .corporate-tagline {
+            text-align: center;
+            color: rgba(255, 255, 255, 0.92);
+            font-size: 15px;
+            font-weight: 700;
+            letter-spacing: 0.25px;
+        }
+
+        .social-login {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .social-btn {
+            flex: 1;
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid #ddd;
+            background: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+        }
+
+        .social-btn:hover {
+            background: #f8f9fa;
+            transform: translateY(-2px);
+        }
+
+        .social-btn i {
+            margin-right: 8px;
+        }
+
+        .additional-links {
+            text-align: center;
+            margin-top: 20px;
+            font-size: 14px;
+        }
+
+        .alert {
+            border-radius: 8px;
+            padding: 12px 15px;
+        }
+
+        .errorlist {
+            color: #dc3545;
+            font-size: 0.875rem;
+            margin-top: 0.25rem;
+            padding-left: 0;
+            list-style-type: none;
+        }
+
+        .signup-link {
+            color: #ffffff;
+            font-weight: 700;
+            text-decoration: underline;
+        }
+
+        .signup-link:hover {
+            color: rgba(255, 255, 255, 0.9);
+        }
+
+        @media (max-width: 380px) {
+            .input-group-text {
+                padding-left: 10px;
+                padding-right: 10px;
+            }
+        }
+
+        @media (max-width: 576px) {
+            body {
+                padding: 12px;
+            }
+
+            .login-container {
+                max-width: 100%;
+            }
+
+            .card-header {
+                padding: 16px;
+            }
+
+            .card-body {
+                padding: 18px;
+                padding-bottom: 0;
+            }
+
+            .logo {
+                max-width: 300px;
+            }
+
+            .logo img {
+                max-width: 260px;
+            }
+
+            .form-label {
+                font-size: 0.95rem;
+            }
+
+            .form-control {
+                padding: 14px 16px;
+            }
+
+            .btn-login {
+                padding: 14px 16px;
+            }
+
+            .divider {
+                margin: 12px 0;
+            }
+
+            .login-card:hover {
+                transform: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-card">
+            <div class="card-header">
+                <div class="logo">
+                    <img src="{% static 'images/bfc.svg' %}" alt="BestFinance logo">
+                </div>
+                <h4>Support Desk</h4>
+                <p class="mb-0">Access your account</p>
+                <p class="mb-0 small mt-1">No account? <a href="{% url 'signup' %}" class="signup-link">Register</a></p>
+            </div>
+            <div class="card-body">
+                {% if messages %}
+                    {% for message in messages %}
+                        <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+                            {{ message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+
+                {% if form.errors %}
+                    <div class="alert alert-danger">
+                        Your username and password didn't match. Please try again.
+                    </div>
+                {% endif %}
+
+                <form method="post" action="{% url 'login' %}">
+                    {% csrf_token %}
+
+                    <div class="mb-3">
+                        <label for="id_username" class="form-label">Username or Email</label>
+                        <div class="input-group">
+                            <span class="input-group-text"><span class="field-glyph" aria-hidden="true">ID</span></span>
+                            <input type="text" name="username" class="form-control" id="id_username" placeholder="Enter username or email" required autofocus>
+                        </div>
+                    </div>
+
+                    <div class="mb-4">
+                        <label for="id_password" class="form-label">Password</label>
+                        <div class="input-group">
+                            <span class="input-group-text"><span class="field-glyph" aria-hidden="true">PW</span></span>
+                            <input type="password" name="password" class="form-control" id="id_password" placeholder="Enter your password" required>
+                            <span class="input-group-text password-toggle" id="togglePassword">
+                                <span class="password-toggle-label">Show</span>
+                            </span>
+                        </div>
+                        <div class="form-text text-end">
+                            <a href="{% url 'password_reset' %}" class="text-decoration-none">Forgot password?</a>
+                        </div>
+                    </div>
+
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" id="rememberMe" name="remember_me">
+                        <label class="form-check-label" for="rememberMe">Remember me</label>
+                    </div>
+
+                    <input type="hidden" name="next" value="{{ next }}">
+
+                    <div class="full-bleed">
+                        <button type="submit" class="btn btn-login w-100">Login</button>
+                    </div>
+                </form>
+            </div>
+            <div class="corporate-banner">
+                <p class="corporate-tagline mb-0">Spreading Excellence. Serving with Best!</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="{% static 'js/local-ui.js' %}"></script>
+    <script>
+        // Toggle password visibility
+        document.getElementById('togglePassword').addEventListener('click', function() {
+            const passwordInput = document.getElementById('id_password');
+            const label = this.querySelector('.password-toggle-label');
+
+            if (passwordInput.type === 'password') {
+                passwordInput.type = 'text';
+                label.textContent = 'Hide';
+            } else {
+                passwordInput.type = 'password';
+                label.textContent = 'Show';
+            }
+        });
+
+        // Auto-focus on username field
+        document.getElementById('id_username').focus();
+    </script>
+</body>
+</html>

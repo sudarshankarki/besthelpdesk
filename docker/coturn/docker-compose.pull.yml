@@ -1,0 +1,15 @@
+services:
+  coturn:
+    image: ${COTURN_IMAGE:?Set COTURN_IMAGE to your Docker Hub image, for example yourname/bestsupport-coturn:latest}
+    container_name: ${COTURN_CONTAINER_NAME:-bestsupport-coturn}
+    restart: unless-stopped
+    env_file:
+      - ./coturn.env
+    volumes:
+      - ./certs:/certs:ro
+    ports:
+      - "${TURN_PORT:-3478}:3478"
+      - "${TURN_PORT:-3478}:3478/udp"
+      - "${TURN_TLS_PORT:-5349}:5349"
+      - "${TURN_TLS_PORT:-5349}:5349/udp"
+      - "${TURN_MIN_PORT:-49160}-${TURN_MAX_PORT:-49200}:${TURN_MIN_PORT:-49160}-${TURN_MAX_PORT:-49200}/udp"

@@ -1,0 +1,69 @@
+{% extends 'base.html' %}
+
+{% block title %}Update Ticket{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-7">
+            <div class="card border-0 shadow-sm">
+                <div class="card-header bg-white">
+                    <h4 class="mb-1">Update {{ ticket.ticket_id }} - {{ ticket.subject }}</h4>
+                    <div class="text-muted small">
+                        Created by {{ ticket.created_by.username }} • {{ ticket.created_at|date:"M d, Y H:i" }}
+                    </div>
+                </div>
+                <div class="card-body">
+                    <form method="post">
+                        {% csrf_token %}
+                        {% for field in form %}
+                        <div class="mb-3">
+                            <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                            {{ field }}
+                            {% if field.help_text %}
+                                <div class="form-text">{{ field.help_text }}</div>
+                            {% endif %}
+                            {% for error in field.errors %}
+                                <div class="text-danger small">{{ error }}</div>
+                            {% endfor %}
+                        </div>
+                    {% endfor %}
+                    <div class="d-flex justify-content-end gap-2">
+                        <a href="{% url 'ticket_detail' ticket.id %}" class="btn btn-outline-secondary">Open Chat</a>
+                        {% if user.is_staff or user.is_superuser or user.is_itsupport %}
+                            <a href="{% url 'support_queue' %}" class="btn btn-outline-secondary">Back to Queue</a>
+                        {% else %}
+                            <a href="{% url 'ticket_list' %}" class="btn btn-outline-secondary">Back to Tickets</a>
+                        {% endif %}
+                        <button type="submit" class="btn btn-primary">Save Changes</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    (function () {
+        const statusSelect = document.getElementById("id_status");
+        const statusNote = document.getElementById("id_status_note");
+        if (!statusSelect || !statusNote) return;
+
+        const group = statusNote.closest(".mb-3");
+        if (!group) return;
+
+        const initialStatus = statusSelect.value;
+
+        function updateVisibility() {
+            const value = statusSelect.value;
+            const isClosingState = value === "resolved" || value === "closed";
+            const isChangingToClosingState = isClosingState && value !== initialStatus;
+            group.style.display = isChangingToClosingState ? "" : "none";
+        }
+
+        statusSelect.addEventListener("change", updateVisibility);
+        updateVisibility();
+    })();
+</script>
+{% endblock %}

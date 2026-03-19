@@ -1,0 +1,68 @@
+{% extends 'base.html' %}
+
+{% block title %}Technical Documentation{% endblock %}
+
+{% block content %}
+<div class="surface p-3 mb-3">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <div>
+            <h2 class="mb-0 fw-bold">Technical Documentation</h2>
+            <div class="ticket-meta mt-1">PDF guides and reference documents for common issues.</div>
+        </div>
+        {% if can_upload %}
+            <a href="{% url 'tech_docs_upload' %}" class="btn btn-primary">Upload PDFs</a>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card surface border-0">
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle mb-0">
+            <thead>
+                <tr>
+                    <th>Document</th>
+                    <th class="d-none d-lg-table-cell">Uploaded</th>
+                    <th class="d-none d-xl-table-cell">Uploaded By</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for doc in documents %}
+                    <tr>
+                        <td>
+                            <div class="fw-semibold">
+                                <a class="text-decoration-none" href="{% url 'tech_doc_view' doc.id %}" target="_blank" rel="noopener">
+                                    {{ doc.title }}
+                                </a>
+                                {% if can_upload and doc.visibility != "public" %}
+                                    <span class="badge-soft chip-muted ms-2">{{ doc.get_visibility_display }}</span>
+                                {% endif %}
+                            </div>
+                            <div class="ticket-meta">{{ doc.filename }}</div>
+                            {% if doc.description %}
+                                <div class="text-muted small mt-1">{{ doc.description|truncatewords:18 }}</div>
+                            {% endif %}
+                        </td>
+                        <td class="d-none d-lg-table-cell">{{ doc.created_at|date:"M d, Y H:i" }}</td>
+                        <td class="d-none d-xl-table-cell">{{ doc.uploaded_by.username|default:"-" }}</td>
+                        <td class="text-end">
+                            <div class="d-flex justify-content-end gap-2">
+                                <a class="btn btn-sm btn-outline-secondary" href="{% url 'tech_doc_view' doc.id %}" target="_blank" rel="noopener">View</a>
+                                <a class="btn btn-sm btn-primary" href="{% url 'tech_doc_download' doc.id %}">Download</a>
+                                {% if perms.tickets.delete_technicaldocument %}
+                                    <form method="post" action="{% url 'tech_doc_delete' doc.id %}" class="d-inline" onsubmit="return confirm('Delete this document?');">
+                                        {% csrf_token %}
+                                        <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                                    </form>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr><td colspan="4" class="text-center text-muted py-4">No documents uploaded yet.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

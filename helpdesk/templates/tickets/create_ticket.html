@@ -1,0 +1,128 @@
+{% extends 'base.html' %}
+
+{% block title %}Create Ticket{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <div class="card surface border-0">
+            <div class="card-header bg-white border-0 pt-4 px-4">
+                <h4 class="mb-1 fw-bold">Create Support Ticket</h4>
+                <p class="text-muted mb-0">Describe your issue clearly so support can resolve it faster.</p>
+            </div>
+            <div class="card-body px-4 pb-4">
+                <form method="post" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    {% for hidden in form.hidden_fields %}
+                        {{ hidden }}
+                    {% endfor %}
+
+                    {% if form.non_field_errors %}
+                        <div class="alert alert-danger py-2">
+                            {% for error in form.non_field_errors %}
+                                <div>{{ error }}</div>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold" for="{{ form.subject.id_for_label }}">{{ form.subject.label }}</label>
+                        {{ form.subject }}
+                        {% for error in form.subject.errors %}
+                            <div class="text-danger small">{{ error }}</div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold" for="{{ form.request_type.id_for_label }}">{{ form.request_type.label }}</label>
+                        {{ form.request_type }}
+                        {% for error in form.request_type.errors %}
+                            <div class="text-danger small">{{ error }}</div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold" for="{{ form.department.id_for_label }}">{{ form.department.label }}</label>
+                        {{ form.department }}
+                        {% if form.department.help_text %}
+                            <div class="form-text">{{ form.department.help_text }}</div>
+                        {% endif %}
+                        {% for error in form.department.errors %}
+                            <div class="text-danger small">{{ error }}</div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <div class="border rounded-3 p-3 h-100 bg-light">
+                                <div class="small text-uppercase text-muted fw-semibold mb-2">Assignment</div>
+                                <label class="form-label fw-bold" for="{{ form.assign_email.id_for_label }}">{{ form.assign_email.label }}</label>
+                                {{ form.assign_email }}
+                                {% if form.assign_email.help_text %}
+                                    <div class="form-text">{{ form.assign_email.help_text }}</div>
+                                {% endif %}
+                                {% for error in form.assign_email.errors %}
+                                    <div class="text-danger small">{{ error }}</div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="border rounded-3 p-3 h-100 bg-light">
+                                <div class="small text-uppercase text-muted fw-semibold mb-2">Notification</div>
+                                <label class="form-label fw-bold" for="{{ form.notify_email.id_for_label }}">{{ form.notify_email.label }}</label>
+                                {{ form.notify_email }}
+                                {% if form.notify_email.help_text %}
+                                    <div class="form-text">{{ form.notify_email.help_text }}</div>
+                                {% endif %}
+                                {% for error in form.notify_email.errors %}
+                                    <div class="text-danger small">{{ error }}</div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold" for="{{ form.description.id_for_label }}">{{ form.description.label }}</label>
+                        {{ form.description }}
+                        {% for error in form.description.errors %}
+                            <div class="text-danger small">{{ error }}</div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold" for="{{ form.impact.id_for_label }}">{{ form.impact.label }}</label>
+                            {{ form.impact }}
+                            {% for error in form.impact.errors %}
+                                <div class="text-danger small">{{ error }}</div>
+                            {% endfor %}
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold" for="{{ form.urgency.id_for_label }}">{{ form.urgency.label }}</label>
+                            {{ form.urgency }}
+                            {% for error in form.urgency.errors %}
+                                <div class="text-danger small">{{ error }}</div>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold" for="{{ form.attachments.id_for_label }}">{{ form.attachments.label }}</label>
+                        {{ form.attachments }}
+                        {% if form.attachments.help_text %}
+                            <div class="form-text">{{ form.attachments.help_text }}</div>
+                        {% endif %}
+                        {% for error in form.attachments.errors %}
+                            <div class="text-danger small">{{ error }}</div>
+                        {% endfor %}
+                    </div>
+                    <div class="d-flex justify-content-end gap-2">
+                        <a href="{% url 'ticket_list' %}" class="btn btn-outline-secondary">Cancel</a>
+                        <button type="submit" class="btn btn-primary">Submit Ticket</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

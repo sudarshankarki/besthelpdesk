@@ -1,0 +1,167 @@
+{% extends 'base.html' %}
+
+{% block title %}Upload Documentation{% endblock %}
+
+{% block content %}
+<div class="surface p-3 mb-3">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <div>
+            <h3 class="mb-0 fw-bold">Upload Technical Documents</h3>
+            <div class="ticket-meta mt-1">Upload one or more PDF files</div>
+        </div>
+        <a href="{% url 'tech_docs' %}" class="btn btn-outline-secondary">Back</a>
+    </div>
+</div>
+
+<div class="card surface border-0">
+    <div class="card-body">
+        <form method="post" enctype="multipart/form-data">
+            {% csrf_token %}
+            <div class="mb-3">
+                <label class="form-label fw-bold" for="id_files">PDF files</label>
+                <input
+                    type="file"
+                    name="files"
+                    id="id_files"
+                    class="form-control"
+                    multiple
+                    accept=".pdf,application/pdf"
+                    required
+                >
+                <div class="form-text">Select one or more PDF files.</div>
+            </div>
+
+            <div class="row g-3 mb-3">
+                <div class="col-12 col-lg-4">
+                    <label class="form-label fw-bold" for="id_visibility">Visibility</label>
+                    <select name="visibility" id="id_visibility" class="form-select">
+                        <option value="public" selected>All users</option>
+                        <option value="restricted">Restricted (selected users)</option>
+                        <option value="support_only">IT Support only</option>
+                    </select>
+                    <div class="form-text">Controls who can see the document in the Documentation page.</div>
+                </div>
+                <div class="col-12 col-lg-8" id="allowed-users-wrap" style="display:none;">
+                    <label class="form-label fw-bold" for="id_allowed_users">Allowed users</label>
+                    <textarea
+                        name="allowed_users"
+                        id="id_allowed_users"
+                        class="form-control"
+                        rows="3"
+                        placeholder="Enter usernames or emails (comma or new-line separated)"
+                    ></textarea>
+                    <div class="form-text">Used only when Visibility is Restricted.</div>
+                </div>
+            </div>
+
+            <div id="title-fields" class="d-grid gap-2">
+                <div class="text-muted small">Select PDF files above to set the title and details for each document.</div>
+            </div>
+
+            <div class="d-flex justify-content-end gap-2 mt-3">
+                <a href="{% url 'tech_docs' %}" class="btn btn-outline-secondary">Cancel</a>
+                <button type="submit" class="btn btn-primary">Upload</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    (function () {
+        const fileInput = document.getElementById("id_files");
+        const container = document.getElementById("title-fields");
+        const visibility = document.getElementById("id_visibility");
+        const allowedWrap = document.getElementById("allowed-users-wrap");
+        if (!fileInput || !container) return;
+
+        function updateAllowedVisibility() {
+            if (!visibility || !allowedWrap) return;
+            allowedWrap.style.display = visibility.value === "restricted" ? "" : "none";
+        }
+
+        function makeDefaultTitle(filename) {
+            const base = (filename || "").split(/[/\\\\]/).pop() || "";
+            return base.replace(/\\.pdf$/i, "") || base;
+        }
+
+        function clear() {
+            while (container.firstChild) {
+                container.removeChild(container.firstChild);
+            }
+        }
+
+        function addDocFields(filename, defaultValue) {
+            const box = document.createElement("div");
+            box.className = "surface p-2";
+
+            const name = document.createElement("div");
+            name.className = "fw-semibold";
+            name.textContent = filename;
+
+            const titleLabel = document.createElement("div");
+            titleLabel.className = "ticket-meta mt-2";
+            titleLabel.textContent = "Title";
+
+            const inputWrap = document.createElement("div");
+            inputWrap.className = "mt-1";
+
+            const input = document.createElement("input");
+            input.type = "text";
+            input.name = "titles";
+            input.className = "form-control";
+            input.placeholder = "Title";
+            input.required = true;
+            input.value = defaultValue;
+
+            inputWrap.appendChild(input);
+
+            const detailsLabel = document.createElement("div");
+            detailsLabel.className = "ticket-meta mt-2";
+            detailsLabel.textContent = "Details (optional)";
+
+            const details = document.createElement("textarea");
+            details.name = "descriptions";
+            details.className = "form-control mt-1";
+            details.rows = 3;
+            details.placeholder = "Details (optional)";
+
+            box.appendChild(name);
+            box.appendChild(titleLabel);
+            box.appendChild(inputWrap);
+            box.appendChild(detailsLabel);
+            box.appendChild(details);
+            container.appendChild(box);
+        }
+
+        function render() {
+            clear();
+            const files = Array.from(fileInput.files || []);
+            if (!files.length) {
+                const hint = document.createElement("div");
+                hint.className = "text-muted small";
+                hint.textContent = "Select PDF files above to set the title and details for each document.";
+                container.appendChild(hint);
+                return;
+            }
+
+            const meta = document.createElement("div");
+            meta.className = "ticket-meta";
+            meta.textContent = "Title & details (one per file)";
+            container.appendChild(meta);
+
+            files.forEach((file) => {
+                addDocFields(file.name, makeDefaultTitle(file.name));
+            });
+        }
+
+        fileInput.addEventListener("change", render);
+        render();
+        if (visibility) {
+            visibility.addEventListener("change", updateAllowedVisibility);
+            updateAllowedVisibility();
+        }
+    })();
+</script>
+{% endblock %}

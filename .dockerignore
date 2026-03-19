@@ -1,0 +1,21 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual env
+venv/
+
+# Git/IDE
+.git/
+.idea/
+.vscode/
+
+# Local artifacts
+*.log
+helpdesk/.env
+.env
+helpdesk/db.sqlite3
+helpdesk/media/
+helpdesk/staticfiles/

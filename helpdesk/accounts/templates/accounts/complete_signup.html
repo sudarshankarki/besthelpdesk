@@ -1,0 +1,16 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <h2>Complete Registration</h2>
+        <p class="text-muted mb-3">Registering as <strong>{{ email }}</strong></p>
+        <form method="post">
+            {% csrf_token %}
+            {{ form.as_p }}
+            <button type="submit" class="btn btn-primary">Create account</button>
+        </form>
+    </div>
+</div>
+{% endblock %}
+

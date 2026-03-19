@@ -1,0 +1,692 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Best Finance SupportDesk{% endblock %}</title>
+    <link rel="stylesheet" href="{% static 'css/local-ui.css' %}">
+    <style>
+        :root {
+            --bg: #f3f6f4;
+            --panel: #ffffff;
+            --ink: #10231a;
+            --muted: #5a6f64;
+            --accent: #0b7a57;
+            --accent-2: #17a273;
+            --line: #d8e4dc;
+            --sidebar-w: 260px;
+            --sidebar-collapsed-w: 78px;
+        }
+
+        html,
+        body {
+            font-family: "Manrope", "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            color: var(--ink);
+            background:
+                radial-gradient(circle at 10% 20%, #c6ece1 0%, transparent 28%),
+                radial-gradient(circle at 95% 5%, #d9efe6 0%, transparent 24%),
+                var(--bg);
+            min-height: 100vh;
+        }
+
+        .app-shell {
+            display: flex;
+            gap: 1rem;
+            padding: 1rem;
+            min-height: 100vh;
+        }
+
+        .app-sidebar {
+            width: var(--sidebar-w);
+            flex: 0 0 var(--sidebar-w);
+            position: sticky;
+            top: 1rem;
+            height: calc(100vh - 2rem);
+            z-index: 1020;
+        }
+
+        .app-sidebar-inner {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            padding: 0.9rem;
+            width: var(--sidebar-w);
+        }
+
+        .sidebar-brand {
+            display: flex;
+            align-items: center;
+            gap: 0.65rem;
+            text-decoration: none;
+            color: rgba(255, 255, 255, 0.92);
+            font-weight: 800;
+            letter-spacing: 0.2px;
+            padding: 0.4rem 0.35rem;
+        }
+
+        .sidebar-brand:hover {
+            color: rgba(255, 255, 255, 0.92);
+        }
+
+        .app-sidebar .sidebar-brand {
+            flex-direction: column;
+            align-items: center;
+            gap: 0.35rem;
+            text-align: center;
+            padding: 0.25rem 0.35rem 0.1rem;
+        }
+
+        .brand-title {
+            font-weight: 900;
+            letter-spacing: 0.2px;
+            line-height: 1.1;
+        }
+
+        .sidebar-nav {
+            margin-top: 0.8rem;
+            display: grid;
+            gap: 0.25rem;
+        }
+
+        .side-link {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            text-decoration: none;
+            color: rgba(255, 255, 255, 0.86);
+            font-weight: 800;
+            border-radius: 14px;
+            padding: 0.55rem 0.7rem;
+            transition: background 0.12s ease, color 0.12s ease;
+        }
+
+        .side-link:hover {
+            background: rgba(255, 255, 255, 0.10);
+            color: rgba(255, 255, 255, 0.96);
+        }
+
+        .side-link.active {
+            background: rgba(255, 255, 255, 0.16);
+            color: rgba(255, 255, 255, 0.98);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+        }
+
+        .side-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.40);
+            box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.06);
+            flex: 0 0 10px;
+        }
+
+        .side-link.active .side-dot {
+            background: #77e0bf;
+        }
+
+        .side-label {
+            white-space: nowrap;
+        }
+
+        .sidebar-footer {
+            margin-top: auto;
+            padding-top: 0.75rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.14);
+            color: rgba(255, 255, 255, 0.84);
+            font-size: 0.9rem;
+        }
+
+        .app-main {
+            flex: 1 1 auto;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .app-header {
+            position: relative;
+            z-index: 1030;
+            border: 1px solid var(--line);
+            background: rgba(255, 255, 255, 0.86);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            box-shadow: 0 12px 35px rgba(15, 44, 29, 0.08);
+            padding: 0.7rem 0.9rem;
+        }
+
+        .profile-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.65rem;
+            border: 1px solid #cfe0d7;
+            background: #ffffff;
+            border-radius: 999px;
+            padding: 0.4rem 0.65rem;
+            font-weight: 800;
+            color: var(--ink);
+        }
+
+        .profile-btn:hover {
+            background: #f7fbf9;
+            color: var(--ink);
+        }
+
+        .avatar {
+            width: 34px;
+            height: 34px;
+            border-radius: 999px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(130deg, var(--accent), var(--accent-2));
+            color: #ffffff;
+            font-weight: 900;
+            letter-spacing: 0.02em;
+            flex: 0 0 34px;
+        }
+
+        .profile-name {
+            line-height: 1.1;
+            font-size: 0.95rem;
+        }
+
+        .profile-meta-inline {
+            line-height: 1.1;
+            font-size: 0.8rem;
+            color: var(--muted);
+            font-weight: 700;
+            max-width: 220px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .topbar {
+            margin: 1rem auto 1.5rem;
+            border: 1px solid var(--line);
+            background: rgba(255, 255, 255, 0.86);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            box-shadow: 0 12px 35px rgba(15, 44, 29, 0.08);
+        }
+
+        .navbar-brand {
+            color: var(--ink) !important;
+            font-weight: 800;
+            letter-spacing: 0.2px;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.6rem;
+        }
+
+        .brand-logo {
+            width: 140px;
+            height: auto;
+            object-fit: contain;
+            display: block;
+        }
+
+        .brand-logo-wrap {
+            background: rgba(255, 255, 255, 0.10);
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            border-radius: 8px;
+            padding: 4px 10px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .nav-link {
+            color: var(--muted) !important;
+            font-weight: 700;
+            border-radius: 999px;
+            padding: 0.45rem 0.9rem !important;
+        }
+
+        .nav-link:hover {
+            color: var(--ink) !important;
+            background: #e7f4ee;
+        }
+
+        .surface {
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            background: var(--panel);
+            box-shadow: 0 10px 30px rgba(18, 40, 28, 0.06);
+        }
+
+        .surface.app-sidebar-inner {
+            background: linear-gradient(180deg, rgba(21, 62, 51, 0.98), rgba(11, 122, 87, 0.88));
+            border-color: rgba(255, 255, 255, 0.16);
+            box-shadow: 0 18px 55px rgba(6, 22, 17, 0.28);
+        }
+
+        .btn-primary {
+            background: linear-gradient(130deg, var(--accent), var(--accent-2));
+            border: none;
+            font-weight: 700;
+        }
+
+        .btn-outline-secondary {
+            border-color: #adc8bc;
+            color: #375247;
+        }
+
+        .badge-soft {
+            border-radius: 999px;
+            padding: 0.4rem 0.65rem;
+            font-weight: 700;
+        }
+
+        .chip-success { background: #d9f6ea; color: #116344; }
+        .chip-primary { background: #d8ecff; color: #1a4f89; }
+        .chip-warning { background: #fff3d2; color: #805c00; }
+        .chip-danger { background: #ffe1e1; color: #8f1f1f; }
+        .chip-muted { background: #ebefec; color: #4a5f54; }
+
+        .table thead th {
+            border-bottom: 1px solid var(--line);
+            color: #355145;
+            font-size: 0.82rem;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .table td {
+            border-bottom-color: #edf3ef;
+            vertical-align: middle;
+        }
+
+        .table-hover tbody tr:hover {
+            background: #f7fbf9;
+        }
+
+        .form-control,
+        .form-select {
+            border-radius: 12px;
+            border-color: #cfe0d7;
+        }
+
+        .form-control:focus,
+        .form-select:focus {
+            border-color: rgba(11, 122, 87, 0.55);
+            box-shadow: 0 0 0 0.2rem rgba(11, 122, 87, 0.12);
+        }
+
+        .ticket-id {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            font-weight: 800;
+            letter-spacing: 0.02em;
+        }
+
+        .ticket-meta {
+            color: var(--muted);
+            font-size: 0.9rem;
+        }
+
+        .ticket-card {
+            border-left: 4px solid transparent;
+            transition: transform 0.06s ease, box-shadow 0.15s ease, background 0.15s ease;
+        }
+
+        .ticket-card:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 14px 36px rgba(18, 40, 28, 0.10);
+        }
+
+        .ticket-accent-open { border-left-color: #1a4f89; }
+        .ticket-accent-new { border-left-color: #1a4f89; }
+        .ticket-accent-acknowledged { border-left-color: #1a4f89; }
+        .ticket-accent-in_progress { border-left-color: #b8860b; }
+        .ticket-accent-waiting_on_user { border-left-color: #b8860b; }
+        .ticket-accent-waiting_on_third_party { border-left-color: #b8860b; }
+        .ticket-accent-resolved { border-left-color: var(--accent); }
+        .ticket-accent-closed { border-left-color: #8f1f1f; }
+        .ticket-accent-cancelled_duplicate { border-left-color: #4a5f54; }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 999px;
+            display: inline-block;
+            vertical-align: middle;
+            box-shadow: 0 0 0 3px rgba(16, 35, 26, 0.04);
+        }
+
+        .status-dot-open { background: #1a4f89; }
+        .status-dot-new { background: #1a4f89; }
+        .status-dot-acknowledged { background: #1a4f89; }
+        .status-dot-in_progress { background: #b8860b; }
+        .status-dot-waiting_on_user { background: #b8860b; }
+        .status-dot-waiting_on_third_party { background: #b8860b; }
+        .status-dot-resolved { background: var(--accent); }
+        .status-dot-closed { background: #8f1f1f; }
+        .status-dot-cancelled_duplicate { background: #4a5f54; }
+
+        @media (max-width: 576px) {
+            .brand-logo {
+                width: 110px;
+            }
+        }
+
+        @media (max-width: 991.98px) {
+            .app-shell {
+                padding: 0.75rem;
+            }
+        }
+
+    </style>
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <div class="app-shell">
+        {% if user.is_authenticated %}
+            <aside class="app-sidebar d-none d-lg-block">
+                <div class="surface app-sidebar-inner">
+                    <a class="sidebar-brand" href="{% url 'dashboard' %}">
+                        <span class="brand-logo-wrap">
+                            <img src="{% static 'images/bfc.svg' %}" alt="BestFinance logo" class="brand-logo">
+                        </span>
+                        <span class="brand-title">SupportDesk</span>
+                    </a>
+
+                    <nav class="sidebar-nav">
+                        <a class="side-link {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}" href="{% url 'dashboard' %}">
+                            <span class="side-dot"></span><span class="side-label">Dashboard</span>
+                        </a>
+                        <a class="side-link {% if request.resolver_match.url_name == 'tech_docs' or request.resolver_match.url_name == 'tech_docs_upload' %}active{% endif %}" href="{% url 'tech_docs' %}">
+                            <span class="side-dot"></span><span class="side-label">Documentation</span>
+                        </a>
+                        <a class="side-link {% if request.resolver_match.url_name == 'ticket_list' %}active{% endif %}" href="{% url 'ticket_list' %}">
+                            <span class="side-dot"></span><span class="side-label">My Tickets</span>
+                        </a>
+                        <a class="side-link {% if request.resolver_match.url_name == 'create_ticket' %}active{% endif %}" href="{% url 'create_ticket' %}">
+                            <span class="side-dot"></span><span class="side-label">New Ticket</span>
+                        </a>
+                        {% if user.is_staff or user.is_superuser or user.is_itsupport %}
+                            <a class="side-link {% if request.resolver_match.url_name == 'support_dashboard' or request.resolver_match.url_name == 'support_queue' %}active{% endif %}" href="{% url 'support_dashboard' %}">
+                                <span class="side-dot"></span><span class="side-label">IT Portal</span>
+                            </a>
+                        {% endif %}
+                        {% if user.is_staff or user.is_superuser %}
+                            <a class="side-link" href="/admin/">
+                                <span class="side-dot"></span><span class="side-label">Admin</span>
+                            </a>
+                        {% endif %}
+                        <a class="side-link" href="{% url 'logout' %}">
+                            <span class="side-dot"></span><span class="side-label">Logout</span>
+                        </a>
+                    </nav>
+
+                    <div class="sidebar-footer">
+                        <div class="fw-semibold text-center">Spreading Excellence. Serving with Best!</div>
+                    </div>
+                </div>
+            </aside>
+
+            <div class="offcanvas offcanvas-start d-lg-none surface" tabindex="-1" id="sidebarOffcanvas" aria-labelledby="sidebarOffcanvasLabel">
+                <div class="offcanvas-header">
+                    <h5 class="offcanvas-title fw-bold" id="sidebarOffcanvasLabel">Menu</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+                </div>
+                <div class="offcanvas-body pt-0">
+                    <div class="d-grid gap-2">
+                        <a class="side-link" href="{% url 'dashboard' %}"><span class="side-dot"></span><span class="side-label">Dashboard</span></a>
+                        <a class="side-link" href="{% url 'tech_docs' %}"><span class="side-dot"></span><span class="side-label">Documentation</span></a>
+                        <a class="side-link" href="{% url 'ticket_list' %}"><span class="side-dot"></span><span class="side-label">My Tickets</span></a>
+                        <a class="side-link" href="{% url 'create_ticket' %}"><span class="side-dot"></span><span class="side-label">New Ticket</span></a>
+                        {% if user.is_staff or user.is_superuser or user.is_itsupport %}
+                            <a class="side-link" href="{% url 'support_dashboard' %}"><span class="side-dot"></span><span class="side-label">IT Portal</span></a>
+                        {% endif %}
+                        {% if user.is_staff or user.is_superuser %}
+                            <a class="side-link" href="/admin/"><span class="side-dot"></span><span class="side-label">Admin</span></a>
+                        {% endif %}
+                        <a class="side-link" href="{% url 'logout' %}"><span class="side-dot"></span><span class="side-label">Logout</span></a>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+
+        <div class="app-main">
+            <header class="app-header mb-3">
+                <div class="d-flex align-items-center gap-2">
+                    {% if user.is_authenticated %}
+                        <button class="btn btn-sm btn-outline-secondary d-lg-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#sidebarOffcanvas" aria-controls="sidebarOffcanvas">
+                            Menu
+                        </button>
+                        <span class="brand-logo-wrap d-lg-none">
+                            <img src="{% static 'images/bfc.svg' %}" alt="BestFinance logo" class="brand-logo" style="width: 110px;">
+                        </span>
+
+                        <div class="ms-auto d-flex align-items-center gap-2">
+                            {% if user.is_superuser %}
+                                <span class="badge-soft chip-danger d-none d-md-inline">Admin</span>
+                            {% elif user.is_staff %}
+                                <span class="badge-soft chip-muted d-none d-md-inline">Staff</span>
+                            {% elif user.is_itsupport %}
+                                <span class="badge-soft chip-primary d-none d-md-inline">IT Support</span>
+                            {% endif %}
+
+                            <div class="dropdown">
+                                <button class="profile-btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                    <span class="avatar">
+                                        {{ user.get_full_name|default:user.username|slice:":1"|upper }}
+                                    </span>
+                                    <span class="d-none d-md-flex flex-column text-start">
+                                        <span class="profile-name">{{ user.get_full_name|default:user.username }}</span>
+                                        <span class="profile-meta-inline">
+                                            {% if user.department %}{{ user.department }}{% endif %}{% if user.department and user.branch %} • {% endif %}{% if user.branch %}{{ user.branch }}{% endif %}
+                                        </span>
+                                    </span>
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end surface border-0 p-2" style="min-width: 280px;">
+                                    <li class="px-2 py-1">
+                                        <div class="fw-bold">{{ user.get_full_name|default:user.username }}</div>
+                                        <div class="ticket-meta">{{ user.email|default:"-" }}</div>
+                                        <div class="ticket-meta">
+                                            {% if user.department %}{{ user.department }}{% endif %}{% if user.department and user.branch %} • {% endif %}{% if user.branch %}{{ user.branch }}{% endif %}
+                                        </div>
+                                    </li>
+                                    <li><hr class="dropdown-divider my-2"></li>
+                                    <li><a class="dropdown-item" href="{% url 'dashboard' %}">Dashboard</a></li>
+                                    <li><a class="dropdown-item" href="{% url 'tech_docs' %}">Documentation</a></li>
+                                    <li><a class="dropdown-item" href="{% url 'ticket_list' %}">My Tickets</a></li>
+                                    {% if user.is_staff or user.is_superuser or user.is_itsupport %}
+                                        <li><a class="dropdown-item" href="{% url 'support_dashboard' %}">IT Portal</a></li>
+                                    {% endif %}
+                                    {% if user.is_staff or user.is_superuser %}
+                                        <li><a class="dropdown-item" href="/admin/">Admin</a></li>
+                                    {% endif %}
+                                    <li><a class="dropdown-item text-danger" href="{% url 'logout' %}">Logout</a></li>
+                                </ul>
+                            </div>
+                        </div>
+                    {% else %}
+                        <a class="sidebar-brand mb-0 d-flex flex-column align-items-start text-dark" href="{% url 'login' %}">
+                            <span class="brand-logo-wrap">
+                                <img src="{% static 'images/bfc.svg' %}" alt="BestFinance logo" class="brand-logo">
+                            </span>
+                            <span class="brand-title">SupportDesk</span>
+                        </a>
+                        <div class="ms-auto d-flex align-items-center gap-2">
+                            <a class="btn btn-sm btn-outline-secondary" href="{% url 'login' %}">Login</a>
+                            <a class="btn btn-sm btn-primary" href="{% url 'signup' %}">Sign Up</a>
+                        </div>
+                    {% endif %}
+                </div>
+            </header>
+
+            <div class="container pb-4">
+                {% if messages %}
+                    {% for message in messages %}
+                        <div class="alert alert-{{ message.tags|default:'info' }} alert-dismissible fade show surface border-0" role="alert">
+                            {{ message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+
+                {% block content %}
+                {% endblock %}
+            </div>
+        </div>
+    </div>
+
+    <div id="toast-container" class="position-fixed top-0 end-0 p-3" style="z-index: 1080;"></div>
+
+    <script src="{% static 'js/local-ui.js' %}"></script>
+    {% if user.is_authenticated %}
+    <script>
+        (function () {
+            const container = document.getElementById("toast-container");
+            if (!container || typeof WebSocket === "undefined") return;
+
+            function headerClasses(level) {
+                if (level === "success") return "bg-success text-white";
+                if (level === "warning") return "bg-warning text-dark";
+                if (level === "danger") return "bg-danger text-white";
+                return "bg-primary text-white";
+            }
+
+            function closeButtonClasses(level) {
+                return level === "warning" ? "btn-close" : "btn-close btn-close-white";
+            }
+
+            function showToast(data) {
+                const title = (data && data.title) ? String(data.title) : "Notification";
+                const message = (data && data.message) ? String(data.message) : "";
+                const url = (data && data.url) ? String(data.url) : "";
+                const level = (data && data.level) ? String(data.level) : "info";
+                const delay = Number.isFinite(Number(data && data.delay)) ? Number(data.delay) : 8000;
+
+                const toastEl = document.createElement("div");
+                toastEl.className = "toast";
+                toastEl.setAttribute("role", "alert");
+                toastEl.setAttribute("aria-live", "assertive");
+                toastEl.setAttribute("aria-atomic", "true");
+
+                const headerEl = document.createElement("div");
+                headerEl.className = `toast-header ${headerClasses(level)}`;
+
+                const titleEl = document.createElement("strong");
+                titleEl.className = "me-auto";
+                titleEl.textContent = title;
+
+                const timeEl = document.createElement("small");
+                timeEl.className = level === "warning" ? "text-dark" : "text-white-50";
+                timeEl.textContent = "now";
+
+                const closeEl = document.createElement("button");
+                closeEl.type = "button";
+                closeEl.className = closeButtonClasses(level);
+                closeEl.setAttribute("data-bs-dismiss", "toast");
+                closeEl.setAttribute("aria-label", "Close");
+
+                headerEl.appendChild(titleEl);
+                headerEl.appendChild(timeEl);
+                headerEl.appendChild(closeEl);
+
+                const bodyEl = document.createElement("div");
+                bodyEl.className = "toast-body";
+                bodyEl.textContent = message;
+
+                if (url) {
+                    const linkEl = document.createElement("a");
+                    linkEl.href = url;
+                    linkEl.className = "d-block mt-2 text-decoration-none";
+                    linkEl.textContent = "Open ticket";
+                    bodyEl.appendChild(linkEl);
+                }
+
+                toastEl.appendChild(headerEl);
+                toastEl.appendChild(bodyEl);
+                container.appendChild(toastEl);
+
+                const toast = new bootstrap.Toast(toastEl, { delay });
+                toast.show();
+                toastEl.addEventListener("hidden.bs.toast", () => toastEl.remove());
+            }
+
+            function showBrowserNotification(data) {
+                if (!data || data.kind !== "incoming_call") return;
+                if (!("Notification" in window)) return;
+                if (document.visibilityState === "visible") return;
+                if (Notification.permission !== "granted") return;
+
+                const title = data.title ? String(data.title) : "Incoming audio call";
+                const message = data.message ? String(data.message) : "";
+                const url = data.url ? String(data.url) : "";
+                const delay = Number.isFinite(Number(data.delay)) ? Number(data.delay) : 20000;
+                const browserNotice = new Notification(title, {
+                    body: message,
+                    tag: `incoming-call-${data.ticket_id || ""}`,
+                });
+
+                browserNotice.onclick = function () {
+                    window.focus();
+                    if (url) {
+                        window.location.href = url;
+                    }
+                    browserNotice.close();
+                };
+
+                window.setTimeout(() => browserNotice.close(), delay);
+            }
+
+            function showUnreadMarker(ticketId) {
+                if (!ticketId) return;
+                const rows = document.querySelectorAll(`[data-ticket-id="${ticketId}"]`);
+                rows.forEach(function (row) {
+                    row.querySelectorAll("[data-unread-indicator], [data-unread-separator]").forEach(function (el) {
+                        if (el.hasAttribute("data-unread-indicator") && !el.textContent.trim()) {
+                            el.textContent = "New message";
+                        }
+                        if (el.hasAttribute("data-unread-separator") && !el.textContent.trim()) {
+                            el.textContent = "•";
+                        }
+                        el.classList.remove("d-none");
+                    });
+                });
+            }
+
+            window.supportDeskShowToast = showToast;
+
+            const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+            const wsUrl = `${protocol}://${window.location.host}/ws/notifications/`;
+            let retries = 0;
+
+            function connect() {
+                const socket = new WebSocket(wsUrl);
+
+                socket.onmessage = function (event) {
+                    try {
+                        const data = JSON.parse(event.data);
+                        showToast(data);
+                        showBrowserNotification(data);
+                        if (data && data.kind === "chat_message") {
+                            showUnreadMarker(data.ticket_id);
+                        }
+                    } catch (e) {
+                        // ignore
+                    }
+                };
+
+                socket.onopen = function () {
+                    retries = 0;
+                };
+
+                socket.onclose = function () {
+                    retries += 1;
+                    const backoffMs = Math.min(15000, 1000 * retries);
+                    window.setTimeout(connect, backoffMs);
+                };
+            }
+
+            connect();
+        })();
+    </script>
+    {% endif %}
+    {% block extra_js %}{% endblock %}
+</body>
+</html>
