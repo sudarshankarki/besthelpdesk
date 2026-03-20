@@ -12,44 +12,62 @@
 </div>
 
 <div class="row g-3 mb-4">
-    <div class="col-md-3">
-        <div class="card surface border-0">
-            <div class="card-body">
-                <p class="text-muted mb-1">Total Tickets</p>
-                <h3 class="mb-0 fw-bold">{{ total_tickets }}</h3>
+    <div class="col-md-3 col-lg">
+        <a href="{{ all_tickets_url }}" class="text-decoration-none text-reset d-block h-100">
+            <div class="card surface border-0 h-100">
+                <div class="card-body">
+                    <p class="text-muted mb-1">Total Tickets</p>
+                    <h3 class="mb-0 fw-bold">{{ total_tickets }}</h3>
+                </div>
             </div>
-        </div>
+        </a>
     </div>
-    <div class="col-md-3">
-        <div class="card surface border-0">
-            <div class="card-body">
-                <p class="text-muted mb-1">New</p>
-                <h3 class="mb-0 fw-bold">{{ new_tickets }}</h3>
+    <div class="col-md-3 col-lg">
+        <a href="{{ new_tickets_url }}" class="text-decoration-none text-reset d-block h-100">
+            <div class="card surface border-0 h-100">
+                <div class="card-body">
+                    <p class="text-muted mb-1">New</p>
+                    <h3 class="mb-0 fw-bold">{{ new_tickets }}</h3>
+                </div>
             </div>
-        </div>
+        </a>
     </div>
-    <div class="col-md-3">
-        <div class="card surface border-0">
-            <div class="card-body">
-                <p class="text-muted mb-1">In Progress</p>
-                <h3 class="mb-0 fw-bold">{{ in_progress_tickets }}</h3>
+    <div class="col-md-3 col-lg">
+        <a href="{{ in_progress_tickets_url }}" class="text-decoration-none text-reset d-block h-100">
+            <div class="card surface border-0 h-100">
+                <div class="card-body">
+                    <p class="text-muted mb-1">In Progress</p>
+                    <h3 class="mb-0 fw-bold">{{ in_progress_tickets }}</h3>
+                </div>
             </div>
-        </div>
+        </a>
     </div>
-    <div class="col-md-3">
-        <div class="card surface border-0">
-            <div class="card-body">
-                <p class="text-muted mb-1">Resolved</p>
-                <h3 class="mb-0 fw-bold">{{ resolved_tickets }}</h3>
+    <div class="col-md-3 col-lg">
+        <a href="{{ resolved_tickets_url }}" class="text-decoration-none text-reset d-block h-100">
+            <div class="card surface border-0 h-100">
+                <div class="card-body">
+                    <p class="text-muted mb-1">Resolved</p>
+                    <h3 class="mb-0 fw-bold">{{ resolved_tickets }}</h3>
+                </div>
             </div>
-        </div>
+        </a>
+    </div>
+    <div class="col-md-3 col-lg">
+        <a href="{{ closed_tickets_url }}" class="text-decoration-none text-reset d-block h-100">
+            <div class="card surface border-0 h-100">
+                <div class="card-body">
+                    <p class="text-muted mb-1">Closed</p>
+                    <h3 class="mb-0 fw-bold">{{ closed_tickets }}</h3>
+                </div>
+            </div>
+        </a>
     </div>
 </div>
 
 <div class="card surface border-0">
     <div class="card-header bg-white border-0 d-flex justify-content-between align-items-center">
         <h5 class="mb-0">Recent Tickets</h5>
-        <a class="fw-bold text-decoration-none" href="{% url 'ticket_list' %}">View all</a>
+        <a class="fw-bold text-decoration-none" href="{{ all_tickets_url }}">View all</a>
     </div>
     <div class="card-body">
         {% if user_tickets %}

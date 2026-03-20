@@ -12,12 +12,12 @@ from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core import mail
 from django.core.management import call_command
-from django.test import TestCase
+from django.test import Client, TestCase
 from django.test.utils import override_settings
 from django.utils import timezone
 from django.urls import reverse
 
-from accounts.models import Department
+from accounts.models import Branch, Department
 from .forms import TicketForm
 from .models import (
     GroupMailboxEmail,
@@ -25,6 +25,7 @@ from .models import (
     Ticket,
     TicketAssignmentLog,
     TicketChatReadState,
+    TicketMessageAttachment,
     TicketMessage,
 )
 from .notifications import (
@@ -508,6 +509,72 @@ class TicketFormDepartmentChoicesTests(TestCase):
         values = [value for value, _label in form.fields["department"].choices]
         self.assertIn("IT", values)
 
+    def test_branch_choices_are_populated_and_default_to_request_user_branch(self):
+        Branch.objects.update_or_create(branch_id="001", defaults={"name": "NewRoad"})
+        user = get_user_model().objects.create_user(
+            username="branch_form_user",
+            password="testpass123",
+            branch="NewRoad",
+        )
+
+        form = TicketForm(user=user)
+        values = [value for value, _label in form.fields["branch"].choices]
+
+        self.assertIn("NewRoad", values)
+        self.assertEqual(form.fields["branch"].initial, "NewRoad")
+
+    def test_assign_email_suggestions_are_grouped_by_department_and_branch(self):
+        Department.objects.update_or_create(name="HR", defaults={})
+        Department.objects.update_or_create(name="IT", defaults={})
+        Branch.objects.update_or_create(branch_id="001", defaults={"name": "NewRoad"})
+        Branch.objects.update_or_create(branch_id="002", defaults={"name": "Pokhara"})
+        get_user_model().objects.create_user(
+            username="hr_email_user",
+            email="hr_email_user@bestfinance.com.np",
+            password="testpass123",
+            department="HR",
+            branch="NewRoad",
+        )
+        get_user_model().objects.create_user(
+            username="it_email_user",
+            email="it_email_user@bestfinance.com.np",
+            password="testpass123",
+            department="IT",
+            branch="Pokhara",
+        )
+
+        form = TicketForm()
+
+        self.assertEqual(form.fields["assign_email"].widget.attrs.get("list"), "assign-email-suggestions")
+        self.assertEqual(
+            form.assignable_emails_by_department_and_branch["HR"]["NewRoad"],
+            ["hr_email_user@bestfinance.com.np"],
+        )
+        self.assertEqual(
+            form.assignable_emails_by_department_and_branch["IT"]["Pokhara"],
+            ["it_email_user@bestfinance.com.np"],
+        )
+
+    def test_notify_email_suggestions_include_department_users_and_group_mailboxes(self):
+        hr_department, _created = Department.objects.update_or_create(name="HR", defaults={})
+        get_user_model().objects.create_user(
+            username="hr_notify_user",
+            email="hr_notify_user@bestfinance.com.np",
+            password="testpass123",
+            department="HR",
+        )
+        GroupMailboxEmail.objects.update_or_create(
+            email="hr@bestfinance.com.np",
+            defaults={"department": hr_department},
+        )
+
+        form = TicketForm()
+
+        self.assertEqual(
+            form.notify_emails_by_department["HR"],
+            ["hr@bestfinance.com.np", "hr_notify_user@bestfinance.com.np"],
+        )
+
 
 class TicketNotifyEmailAssignmentTests(TestCase):
     def test_notify_email_assigns_ticket_when_user_exists_and_not_group(self):
@@ -543,15 +610,35 @@ class TicketNotifyEmailAssignmentTests(TestCase):
 )
 class CreateTicketRoutingTests(TestCase):
     def setUp(self):
+        Department.objects.update_or_create(name="HR", defaults={})
+        Department.objects.update_or_create(name="Finance", defaults={})
+        Branch.objects.update_or_create(branch_id="001", defaults={"name": "Kathmandu"})
+        Branch.objects.update_or_create(branch_id="002", defaults={"name": "Pokhara"})
         self.creator = get_user_model().objects.create_user(
             username="creator_form",
             email="creator_form@bestfinance.com.np",
             password="testpass123",
+            branch="Kathmandu",
         )
         self.assignee = get_user_model().objects.create_user(
             username="assignee_form",
             email="assignee_form@bestfinance.com.np",
             password="testpass123",
+            department="HR",
+            branch="Kathmandu",
+        )
+        self.same_department_other_branch_assignee = get_user_model().objects.create_user(
+            username="assignee_other_branch_form",
+            email="assignee_other_branch_form@bestfinance.com.np",
+            password="testpass123",
+            department="HR",
+            branch="Pokhara",
+        )
+        self.other_department_assignee = get_user_model().objects.create_user(
+            username="finance_assignee_form",
+            email="finance_assignee_form@bestfinance.com.np",
+            password="testpass123",
+            department="Finance",
         )
         self.client.force_login(self.creator)
 
@@ -560,6 +647,7 @@ class CreateTicketRoutingTests(TestCase):
             "subject": "Create ticket routing",
             "request_type": "incident",
             "department": "",
+            "branch": "",
             "assign_email": "",
             "notify_email": "",
             "description": "Routing test ticket",
@@ -580,6 +668,7 @@ class CreateTicketRoutingTests(TestCase):
             reverse("create_ticket"),
             data=self._ticket_payload(
                 subject="HR routed ticket",
+                branch="Kathmandu",
                 assign_email=self.assignee.email,
                 notify_email="hr@bestfinance.com.np",
             ),
@@ -590,6 +679,7 @@ class CreateTicketRoutingTests(TestCase):
         self.assertEqual(ticket.assigned_to_id, self.assignee.id)
         self.assertEqual(ticket.notify_email, "hr@bestfinance.com.np")
         self.assertEqual(ticket.department, "HR")
+        self.assertEqual(ticket.branch, "Kathmandu")
         self.assertEqual(TicketAssignmentLog.objects.filter(ticket=ticket).count(), 1)
         self.assertEqual(len(mail.outbox), 2)
         self.assertTrue(
@@ -714,6 +804,103 @@ class CreateTicketRoutingTests(TestCase):
         self.assertIn("assign_email", response.context["form"].errors)
         self.assertContains(response, "You cannot assign a ticket to yourself.")
 
+    def test_create_ticket_rejects_assign_email_outside_selected_department(self):
+        response = self.client.post(
+            reverse("create_ticket"),
+            data=self._ticket_payload(
+                subject="Wrong department assignee",
+                department="HR",
+                branch="Kathmandu",
+                assign_email=self.other_department_assignee.email,
+            ),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(Ticket.objects.filter(subject="Wrong department assignee").exists())
+        self.assertIn("assign_email", response.context["form"].errors)
+        self.assertContains(response, "must belong to the HR department")
+
+    def test_create_ticket_rejects_assign_email_outside_selected_branch(self):
+        response = self.client.post(
+            reverse("create_ticket"),
+            data=self._ticket_payload(
+                subject="Wrong branch assignee",
+                department="HR",
+                branch="Kathmandu",
+                assign_email=self.same_department_other_branch_assignee.email,
+            ),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(Ticket.objects.filter(subject="Wrong branch assignee").exists())
+        self.assertIn("assign_email", response.context["form"].errors)
+        self.assertContains(response, "must belong to the Kathmandu branch")
+
+    def test_create_ticket_page_renders_department_email_suggestion_data(self):
+        department, _created = Department.objects.update_or_create(name="HR", defaults={})
+        GroupMailboxEmail.objects.update_or_create(
+            email="hr@bestfinance.com.np",
+            defaults={"department": department},
+        )
+
+        response = self.client.get(reverse("create_ticket"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="assign-email-suggestions"')
+        self.assertContains(response, 'id="notify-email-suggestions"')
+        self.assertContains(response, 'name="branch"')
+        self.assertContains(response, self.assignee.email)
+        self.assertContains(response, "hr@bestfinance.com.np")
+
+    def test_create_ticket_uses_selected_branch(self):
+        response = self.client.post(
+            reverse("create_ticket"),
+            data=self._ticket_payload(
+                subject="Selected branch ticket",
+                branch="Pokhara",
+            ),
+        )
+
+        self.assertEqual(response.status_code, 302)
+        ticket = Ticket.objects.get(subject="Selected branch ticket")
+        self.assertEqual(ticket.branch, "Pokhara")
+
+    def test_create_ticket_rejects_notify_email_outside_selected_department(self):
+        response = self.client.post(
+            reverse("create_ticket"),
+            data=self._ticket_payload(
+                subject="Wrong department notify user",
+                department="HR",
+                notify_email=self.other_department_assignee.email,
+            ),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(Ticket.objects.filter(subject="Wrong department notify user").exists())
+        self.assertIn("notify_email", response.context["form"].errors)
+        self.assertContains(response, "must belong to the HR department")
+
+    def test_create_ticket_rejects_group_notify_email_outside_selected_department(self):
+        finance_department, _created = Department.objects.update_or_create(name="Finance", defaults={})
+        GroupMailboxEmail.objects.update_or_create(
+            email="finance@bestfinance.com.np",
+            defaults={"department": finance_department},
+        )
+
+        response = self.client.post(
+            reverse("create_ticket"),
+            data=self._ticket_payload(
+                subject="Wrong department notify mailbox",
+                department="HR",
+                notify_email="finance@bestfinance.com.np",
+            ),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(Ticket.objects.filter(subject="Wrong department notify mailbox").exists())
+        self.assertIn("notify_email", response.context["form"].errors)
+        self.assertContains(response, "must belong to the HR department")
+
 
 class DepartmentOwnershipTests(TestCase):
     def setUp(self):
@@ -722,18 +909,28 @@ class DepartmentOwnershipTests(TestCase):
             email="dept_requester@bestfinance.com.np",
             password="testpass123",
             department="Operations",
+            branch="Kathmandu",
         )
         self.hr_user = get_user_model().objects.create_user(
             username="hr_owner",
             email="hr_owner@bestfinance.com.np",
             password="testpass123",
             department="HR",
+            branch="Kathmandu",
+        )
+        self.hr_other_branch_user = get_user_model().objects.create_user(
+            username="hr_other_branch",
+            email="hr_other_branch@bestfinance.com.np",
+            password="testpass123",
+            department="HR",
+            branch="Pokhara",
         )
         self.finance_user = get_user_model().objects.create_user(
             username="finance_owner",
             email="finance_owner@bestfinance.com.np",
             password="testpass123",
             department="Finance",
+            branch="Kathmandu",
         )
         self.ticket = Ticket.objects.create(
             created_by=self.requester,
@@ -758,6 +955,44 @@ class DepartmentOwnershipTests(TestCase):
 
         self.assertEqual(response.status_code, 302)
         self.assertIn(reverse("ticket_list"), response.url)
+
+    def test_same_department_other_branch_cannot_see_department_ticket(self):
+        self.client.force_login(self.hr_other_branch_user)
+        response = self.client.get(reverse("ticket_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, self.ticket.subject)
+
+    def test_same_department_other_branch_cannot_open_department_ticket(self):
+        self.client.force_login(self.hr_other_branch_user)
+        response = self.client.get(reverse("ticket_detail", args=[self.ticket.id]))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse("ticket_list"), response.url)
+
+    def test_same_department_other_branch_cannot_take_ownership(self):
+        self.client.force_login(self.hr_other_branch_user)
+        response = self.client.post(reverse("ticket_claim", args=[self.ticket.id]), follow=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.ticket.refresh_from_db()
+        self.assertIsNone(self.ticket.assigned_to_id)
+
+    def test_department_visibility_uses_ticket_branch_snapshot(self):
+        self.requester.branch = "Pokhara"
+        self.requester.save(update_fields=["branch"])
+        self.ticket.refresh_from_db()
+
+        self.assertEqual(self.ticket.branch, "Kathmandu")
+
+        self.client.force_login(self.hr_user)
+        same_branch_response = self.client.get(reverse("ticket_detail", args=[self.ticket.id]))
+        self.assertEqual(same_branch_response.status_code, 200)
+
+        self.client.force_login(self.hr_other_branch_user)
+        other_branch_response = self.client.get(reverse("ticket_detail", args=[self.ticket.id]))
+        self.assertEqual(other_branch_response.status_code, 302)
+        self.assertIn(reverse("ticket_list"), other_branch_response.url)
 
     def test_department_member_can_take_ownership(self):
         self.client.force_login(self.hr_user)
@@ -794,18 +1029,21 @@ class PrivateTicketChatAccessTests(TestCase):
             email="private_requester@bestfinance.com.np",
             password="testpass123",
             department="Operations",
+            branch="Kathmandu",
         )
         self.assigned_user = get_user_model().objects.create_user(
             username="private_assignee",
             email="private_assignee@bestfinance.com.np",
             password="testpass123",
             department="HR",
+            branch="Pokhara",
         )
         self.hr_peer = get_user_model().objects.create_user(
             username="private_hr_peer",
             email="private_hr_peer@bestfinance.com.np",
             password="testpass123",
             department="HR",
+            branch="Kathmandu",
         )
         self.ticket = Ticket.objects.create(
             created_by=self.requester,
@@ -1011,6 +1249,25 @@ class ClosedTicketChatLockTests(TestCase):
         )
         self.assertEqual(TicketMessage.objects.filter(ticket=self.ticket).count(), 0)
 
+    def test_closed_ticket_message_delete_is_blocked(self):
+        message = TicketMessage.objects.create(
+            ticket=self.ticket,
+            author=self.requester,
+            body="Do not delete after close.",
+        )
+        self.client.force_login(self.requester)
+
+        response = self.client.post(
+            reverse("ticket_chat_message_delete", args=[self.ticket.id, message.id]),
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json(),
+            {"ok": False, "error": "Chat is disabled for closed tickets."},
+        )
+        self.assertTrue(TicketMessage.objects.filter(id=message.id).exists())
+
     @override_settings(
         WEBRTC_ICE_SERVERS=[
             {"urls": ["stun:stun.example.com:3478"]},
@@ -1090,6 +1347,181 @@ class ClosedTicketChatLockTests(TestCase):
         self.assertIn(expected_credential, response.context["webrtc_ice_servers_json"])
         self.assertIn("turn:192.168.0.103:3478?transport=udp", response.context["webrtc_ice_servers_json"])
 
+
+class TicketChatAttachmentUploadTests(TestCase):
+    def setUp(self):
+        self.requester = get_user_model().objects.create_user(
+            username="chat_attachment_requester",
+            password="testpass123",
+        )
+        self.agent = get_user_model().objects.create_user(
+            username="chat_attachment_agent",
+            password="testpass123",
+            is_itsupport=True,
+        )
+        self.ticket = Ticket.objects.create(
+            created_by=self.requester,
+            assigned_to=self.agent,
+            subject="Chat attachment upload",
+            description="Chat attachments should support small batches.",
+            priority="medium",
+            status="in_progress",
+        )
+        self.client.force_login(self.requester)
+
+    @patch("tickets.views.get_s3_client")
+    @patch("tickets.views.get_minio_config")
+    def test_ticket_attachment_upload_accepts_multiple_files_up_to_limit(
+        self,
+        mock_get_minio_config,
+        mock_get_s3_client,
+    ):
+        mock_get_minio_config.return_value = Mock(bucket="ticket-files")
+        mock_s3 = Mock()
+        mock_get_s3_client.return_value = mock_s3
+
+        response = self.client.post(
+            reverse("ticket_attachment_upload", args=[self.ticket.id]),
+            {
+                "file": [
+                    SimpleUploadedFile("one.txt", b"one", content_type="text/plain"),
+                    SimpleUploadedFile("two.txt", b"two", content_type="text/plain"),
+                ]
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(len(payload["events"]), 2)
+        self.assertEqual(mock_s3.upload_fileobj.call_count, 2)
+        self.assertEqual(TicketMessage.objects.filter(ticket=self.ticket).count(), 2)
+        self.assertEqual(TicketMessageAttachment.objects.filter(ticket=self.ticket).count(), 2)
+        filenames = [event["attachment"]["filename"] for event in payload["events"]]
+        self.assertEqual(filenames, ["one.txt", "two.txt"])
+
+    def test_ticket_attachment_upload_rejects_more_than_five_files(self):
+        response = self.client.post(
+            reverse("ticket_attachment_upload", args=[self.ticket.id]),
+            {
+                "file": [
+                    SimpleUploadedFile(f"file-{index}.txt", b"x", content_type="text/plain")
+                    for index in range(6)
+                ]
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json(),
+            {"ok": False, "error": "You can upload up to 5 attachments at once."},
+        )
+        self.assertEqual(TicketMessage.objects.filter(ticket=self.ticket).count(), 0)
+        self.assertEqual(TicketMessageAttachment.objects.filter(ticket=self.ticket).count(), 0)
+
+
+class TicketChatMessageDeleteTests(TestCase):
+    def setUp(self):
+        self.requester = get_user_model().objects.create_user(
+            username="chat_delete_requester",
+            password="testpass123",
+        )
+        self.agent = get_user_model().objects.create_user(
+            username="chat_delete_agent",
+            password="testpass123",
+            is_itsupport=True,
+        )
+        self.ticket = Ticket.objects.create(
+            created_by=self.requester,
+            assigned_to=self.agent,
+            subject="Chat delete test",
+            description="Own messages should be deletable.",
+            priority="medium",
+            status="in_progress",
+        )
+
+    def test_author_can_delete_own_chat_message(self):
+        message = TicketMessage.objects.create(
+            ticket=self.ticket,
+            author=self.requester,
+            body="Please remove this message.",
+        )
+        self.client.force_login(self.requester)
+
+        response = self.client.post(
+            reverse("ticket_chat_message_delete", args=[self.ticket.id, message.id]),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"ok": True, "deleted_message_id": message.id})
+        self.assertFalse(TicketMessage.objects.filter(id=message.id).exists())
+
+    def test_user_cannot_delete_other_users_chat_message(self):
+        message = TicketMessage.objects.create(
+            ticket=self.ticket,
+            author=self.agent,
+            body="Support reply should stay.",
+        )
+        self.client.force_login(self.requester)
+
+        response = self.client.post(
+            reverse("ticket_chat_message_delete", args=[self.ticket.id, message.id]),
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(
+            response.json(),
+            {"ok": False, "error": "You can delete only your own chat messages."},
+        )
+        self.assertTrue(TicketMessage.objects.filter(id=message.id).exists())
+
+    @patch("tickets.views._try_delete_minio_objects")
+    def test_deleting_attachment_message_removes_attachment_record(self, mocked_delete_objects):
+        message = TicketMessage.objects.create(
+            ticket=self.ticket,
+            author=self.requester,
+            body="Attachment uploaded: receipt.pdf",
+        )
+        attachment = TicketMessageAttachment.objects.create(
+            ticket=self.ticket,
+            message=message,
+            uploaded_by=self.requester,
+            object_key="tickets/test/receipt.pdf",
+            filename="receipt.pdf",
+            content_type="application/pdf",
+            size=123,
+        )
+        self.client.force_login(self.requester)
+
+        response = self.client.post(
+            reverse("ticket_chat_message_delete", args=[self.ticket.id, message.id]),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        mocked_delete_objects.assert_called_once_with([attachment.object_key])
+        self.assertFalse(TicketMessage.objects.filter(id=message.id).exists())
+        self.assertFalse(TicketMessageAttachment.objects.filter(id=attachment.id).exists())
+
+    def test_ticket_detail_shows_delete_button_only_for_own_messages(self):
+        own_message = TicketMessage.objects.create(
+            ticket=self.ticket,
+            author=self.requester,
+            body="This one is mine.",
+        )
+        other_message = TicketMessage.objects.create(
+            ticket=self.ticket,
+            author=self.agent,
+            body="This one is not mine.",
+        )
+        self.client.force_login(self.requester)
+
+        response = self.client.get(reverse("ticket_detail", args=[self.ticket.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f'data-chat-delete-id="{own_message.id}"')
+        self.assertNotContains(response, f'data-chat-delete-id="{other_message.id}"')
+
+
 class TicketResolvedEmailTests(TestCase):
     @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
     def test_resolving_ticket_sends_email_to_requester(self):
@@ -1127,6 +1559,44 @@ class TicketResolvedEmailTests(TestCase):
 
         ticket.refresh_from_db()
         self.assertEqual(ticket.resolved_note, "Issue fixed and verified.")
+
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+    def test_resolving_ticket_with_csrf_enabled_does_not_server_error(self):
+        requester = get_user_model().objects.create_user(
+            username="requester_csrf",
+            email="requester_csrf@bestfinance.com.np",
+            password="testpass123",
+        )
+        agent = get_user_model().objects.create_user(
+            username="agent_csrf",
+            email="agent_csrf@bestfinance.com.np",
+            password="testpass123",
+        )
+        ticket = Ticket.objects.create(
+            created_by=requester,
+            subject="Resolve csrf test",
+            description="Test ticket",
+            priority="low",
+            status="new",
+            assigned_to=agent,
+        )
+
+        client = Client(enforce_csrf_checks=True)
+        client.force_login(agent)
+        get_response = client.get(reverse("ticket_update", args=[ticket.id]))
+        self.assertEqual(get_response.status_code, 200)
+
+        csrf_token = client.cookies["csrftoken"].value
+        response = client.post(
+            reverse("ticket_update", args=[ticket.id]),
+            data={"status": "resolved", "status_note": "Resolved with csrf enabled."},
+            HTTP_X_CSRFTOKEN=csrf_token,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.status, "resolved")
+        self.assertEqual(ticket.resolved_note, "Resolved with csrf enabled.")
 
 
 class TicketCloseViaEmailLinkTests(TestCase):
@@ -1267,6 +1737,138 @@ class TicketClosedEmailTests(TestCase):
         self.assertEqual(ticket.closed_note, "Closed after confirmation.")
         self.assertEqual(ticket.closed_by_id, agent.id)
 
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+    def test_closing_ticket_sends_multiple_uploaded_attachments_in_email(self):
+        requester = get_user_model().objects.create_user(
+            username="close_requester_multi",
+            email="close_requester_multi@bestfinance.com.np",
+            password="testpass123",
+        )
+        agent = get_user_model().objects.create_user(
+            username="close_agent_multi",
+            email="close_agent_multi@bestfinance.com.np",
+            password="testpass123",
+            is_itsupport=True,
+        )
+        ticket = Ticket.objects.create(
+            created_by=requester,
+            subject="Close email attachment test",
+            description="Test ticket",
+            priority="low",
+            status="resolved",
+            resolved_at=timezone.now(),
+            assigned_to=agent,
+        )
+
+        self.client.force_login(agent)
+        response = self.client.post(
+            reverse("ticket_update", args=[ticket.id]),
+            data={
+                "status": "closed",
+                "priority": "low",
+                "assigned_to": agent.id,
+                "status_note": "Please review the attached closure files.",
+                "close_email_attachments": [
+                    SimpleUploadedFile("closure-summary.txt", b"summary", content_type="text/plain"),
+                    SimpleUploadedFile("closure-checklist.pdf", b"%PDF-1.4", content_type="application/pdf"),
+                ],
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("2 attachments are included with this email.", mail.outbox[0].body)
+        attachment_names = [attachment[0] for attachment in mail.outbox[0].attachments]
+        self.assertCountEqual(
+            attachment_names,
+            ["closure-summary.txt", "closure-checklist.pdf"],
+        )
+
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+    @patch("tickets.views._use_request_only_upload_handlers")
+    def test_closing_ticket_uses_request_only_upload_handler_for_email_attachments(self, mocked_upload_handlers):
+        requester = get_user_model().objects.create_user(
+            username="close_requester_memory",
+            email="close_requester_memory@bestfinance.com.np",
+            password="testpass123",
+        )
+        agent = get_user_model().objects.create_user(
+            username="close_agent_memory",
+            email="close_agent_memory@bestfinance.com.np",
+            password="testpass123",
+            is_itsupport=True,
+        )
+        ticket = Ticket.objects.create(
+            created_by=requester,
+            subject="Close email memory upload test",
+            description="Test ticket",
+            priority="low",
+            status="resolved",
+            resolved_at=timezone.now(),
+            assigned_to=agent,
+        )
+
+        self.client.force_login(agent)
+        response = self.client.post(
+            reverse("ticket_update", args=[ticket.id]),
+            data={
+                "status": "closed",
+                "priority": "low",
+                "assigned_to": agent.id,
+                "status_note": "Memory-only close email.",
+                "close_email_attachments": [
+                    SimpleUploadedFile("memory-only.txt", b"memory", content_type="text/plain"),
+                ],
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        mocked_upload_handlers.assert_called_once()
+
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+    def test_closing_ticket_without_message_or_attachments_sends_plain_notification_only(self):
+        requester = get_user_model().objects.create_user(
+            username="close_requester_plain",
+            email="close_requester_plain@bestfinance.com.np",
+            password="testpass123",
+        )
+        agent = get_user_model().objects.create_user(
+            username="close_agent_plain",
+            email="close_agent_plain@bestfinance.com.np",
+            password="testpass123",
+            is_itsupport=True,
+        )
+        ticket = Ticket.objects.create(
+            created_by=requester,
+            subject="Close email plain test",
+            description="Test ticket",
+            priority="low",
+            status="resolved",
+            resolved_at=timezone.now(),
+            assigned_to=agent,
+        )
+
+        self.client.force_login(agent)
+        response = self.client.post(
+            reverse("ticket_update", args=[ticket.id]),
+            data={
+                "status": "closed",
+                "priority": "low",
+                "assigned_to": agent.id,
+                "status_note": "",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertNotIn("Closure Details:", mail.outbox[0].body)
+        self.assertNotIn("included with this email", mail.outbox[0].body)
+        self.assertEqual(mail.outbox[0].attachments, [])
+
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.status, "closed")
+        self.assertEqual(ticket.closed_note, "")
+
 
 class TicketSelfAssignmentBlockTests(TestCase):
     def test_ticket_creator_cannot_assign_ticket_to_self(self):
@@ -1380,13 +1982,53 @@ class SupportPortalFiltersTests(TestCase):
             priority="low",
             status="resolved",
         )
+        self.ticket_four = Ticket.objects.create(
+            created_by=self.creator_two,
+            assigned_to=None,
+            subject="Queue needs owner",
+            description="Unassigned ticket should be filterable.",
+            priority="medium",
+            status="new",
+        )
+        self.ticket_five = Ticket.objects.create(
+            created_by=self.creator_one,
+            assigned_to=self.agent_two,
+            subject="Ticket acknowledged",
+            description="Acknowledged ticket should count with new.",
+            priority="medium",
+            status="acknowledged",
+        )
+        self.ticket_six = Ticket.objects.create(
+            created_by=self.creator_two,
+            assigned_to=self.agent_two,
+            subject="Waiting on user",
+            description="Waiting ticket should count with in progress.",
+            priority="medium",
+            status="waiting_on_user",
+        )
+        self.ticket_seven = Ticket.objects.create(
+            created_by=self.creator_one,
+            assigned_to=self.agent_one,
+            subject="Cancelled duplicate",
+            description="Cancelled ticket should count with closed.",
+            priority="low",
+            status="cancelled_duplicate",
+        )
         base_time = timezone.now().replace(hour=12, minute=0, second=0, microsecond=0)
         Ticket.objects.filter(pk=self.ticket_one.pk).update(created_at=base_time - timedelta(days=5))
         Ticket.objects.filter(pk=self.ticket_two.pk).update(created_at=base_time - timedelta(days=2))
         Ticket.objects.filter(pk=self.ticket_three.pk).update(created_at=base_time - timedelta(days=1))
+        Ticket.objects.filter(pk=self.ticket_four.pk).update(created_at=base_time - timedelta(days=4))
+        Ticket.objects.filter(pk=self.ticket_five.pk).update(created_at=base_time - timedelta(days=6))
+        Ticket.objects.filter(pk=self.ticket_six.pk).update(created_at=base_time - timedelta(days=3))
+        Ticket.objects.filter(pk=self.ticket_seven.pk).update(created_at=base_time - timedelta(days=7))
         self.ticket_one.refresh_from_db()
         self.ticket_two.refresh_from_db()
         self.ticket_three.refresh_from_db()
+        self.ticket_four.refresh_from_db()
+        self.ticket_five.refresh_from_db()
+        self.ticket_six.refresh_from_db()
+        self.ticket_seven.refresh_from_db()
         self.client.force_login(self.viewer)
 
     def test_support_dashboard_filters_by_same_day_range(self):
@@ -1439,11 +2081,83 @@ class SupportPortalFiltersTests(TestCase):
         self.assertIn(self.ticket_two.id, queue_ids)
         self.assertNotIn(self.ticket_three.id, queue_ids)
 
+    def test_support_dashboard_grouped_status_counts_match_total(self):
+        response = self.client.get(reverse("support_dashboard"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["new_assigned_tickets"], 2)
+        self.assertEqual(response.context["new_unassigned_tickets"], 1)
+        self.assertEqual(response.context["in_progress_tickets"], 2)
+        self.assertEqual(response.context["resolved_tickets"], 1)
+        self.assertEqual(response.context["closed_tickets"], 1)
+        self.assertEqual(
+            response.context["total_tickets"],
+            response.context["new_assigned_tickets"]
+            + response.context["new_unassigned_tickets"]
+            + response.context["in_progress_tickets"]
+            + response.context["resolved_tickets"]
+            + response.context["closed_tickets"],
+        )
+        self.assertIn("status_group=new", response.context["new_assigned_tickets_url"])
+        self.assertIn("assignment_scope=assigned", response.context["new_assigned_tickets_url"])
+        self.assertIn("status_group=new", response.context["new_unassigned_tickets_url"])
+        self.assertIn("assignment_scope=unassigned", response.context["new_unassigned_tickets_url"])
+        self.assertIn("status_group=in_progress", response.context["in_progress_tickets_url"])
+        self.assertIn("status_group=closed", response.context["closed_tickets_url"])
+
+    def test_new_unassigned_card_links_to_filtered_queue(self):
+        dashboard_response = self.client.get(reverse("support_dashboard"))
+
+        self.assertEqual(dashboard_response.status_code, 200)
+        self.assertEqual(
+            dashboard_response.context["new_unassigned_tickets_url"],
+            f'{reverse("support_queue")}?status_group=new&assignment_scope=unassigned',
+        )
+        self.assertContains(
+            dashboard_response,
+            f'href="{reverse("support_queue")}?status_group=new&amp;assignment_scope=unassigned"',
+        )
+
+    def test_support_queue_filters_new_unassigned_tickets(self):
+        response = self.client.get(
+            reverse("support_queue"),
+            {"status_group": "new", "assignment_scope": "unassigned"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["selected_status_group"], "new")
+        self.assertEqual(response.context["selected_assignment_scope"], "unassigned")
+        self.assertEqual([ticket.id for ticket in response.context["tickets"]], [self.ticket_four.id])
+        self.assertContains(response, self.ticket_four.subject)
+        self.assertNotContains(response, self.ticket_one.subject)
+        self.assertNotContains(response, self.ticket_five.subject)
+        self.assertNotContains(response, self.ticket_two.subject)
+        self.assertNotContains(response, self.ticket_three.subject)
+
+    def test_support_queue_filters_status_group(self):
+        response = self.client.get(
+            reverse("support_queue"),
+            {"status_group": "new"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["selected_status_group"], "new")
+        queue_ids = [ticket.id for ticket in response.context["tickets"]]
+        self.assertIn(self.ticket_one.id, queue_ids)
+        self.assertIn(self.ticket_four.id, queue_ids)
+        self.assertIn(self.ticket_five.id, queue_ids)
+        self.assertNotIn(self.ticket_two.id, queue_ids)
+        self.assertNotIn(self.ticket_six.id, queue_ids)
+
 
 class TicketListDateFilterTests(TestCase):
     def setUp(self):
         self.requester = get_user_model().objects.create_user(
             username="ticket_list_user",
+            password="testpass123",
+        )
+        self.other_user = get_user_model().objects.create_user(
+            username="ticket_list_other_user",
             password="testpass123",
         )
         self.agent = get_user_model().objects.create_user(
@@ -1474,6 +2188,14 @@ class TicketListDateFilterTests(TestCase):
             description="Need toner replacement.",
             priority="low",
             status="resolved",
+        )
+        self.assigned_ticket = Ticket.objects.create(
+            created_by=self.other_user,
+            assigned_to=self.requester,
+            subject="Assigned to requester",
+            description="Should stay out of dashboard-scope results.",
+            priority="medium",
+            status="new",
         )
         base_time = timezone.now().replace(hour=10, minute=0, second=0, microsecond=0)
         Ticket.objects.filter(pk=self.ticket_one.pk).update(created_at=base_time - timedelta(days=6))
@@ -1513,3 +2235,28 @@ class TicketListDateFilterTests(TestCase):
         self.assertIn(self.ticket_two.id, ticket_ids)
         self.assertIn(self.ticket_three.id, ticket_ids)
         self.assertNotIn(self.ticket_one.id, ticket_ids)
+
+    def test_ticket_list_filters_by_status(self):
+        response = self.client.get(
+            reverse("ticket_list"),
+            {"status": "in_progress"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["selected_status"], "in_progress")
+        self.assertEqual([ticket.id for ticket in response.context["tickets"]], [self.ticket_two.id])
+        self.assertContains(response, self.ticket_two.subject)
+        self.assertNotContains(response, self.ticket_one.subject)
+        self.assertNotContains(response, self.ticket_three.subject)
+
+    def test_ticket_list_scope_created_by_me_excludes_assigned_tickets(self):
+        response = self.client.get(
+            reverse("ticket_list"),
+            {"scope": "created_by_me", "status": "new"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["selected_scope"], "created_by_me")
+        self.assertEqual([ticket.id for ticket in response.context["tickets"]], [self.ticket_one.id])
+        self.assertContains(response, self.ticket_one.subject)
+        self.assertNotContains(response, self.assigned_ticket.subject)

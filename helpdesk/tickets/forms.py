@@ -2,8 +2,8 @@ from django import forms
 from django.conf import settings
 from django.db.models import Q
 
-from accounts.models import CustomUser, Department
-from .models import Ticket, is_group_mailbox_email
+from accounts.models import Branch, CustomUser, Department
+from .models import GroupMailboxEmail, Ticket, is_group_mailbox_email
 
 
 class MultipleFileInput(forms.ClearableFileInput):
@@ -18,6 +18,15 @@ class MultipleFileField(forms.FileField):
             data = [data]
         parent_clean = super().clean
         return [parent_clean(item, initial) for item in data]
+
+
+def _clean_uploaded_files(uploads):
+    uploads = uploads or []
+    max_bytes = int(getattr(settings, "TICKET_ATTACHMENT_MAX_BYTES", 20 * 1024 * 1024))
+    for upload in uploads:
+        if upload.size and upload.size > max_bytes:
+            raise forms.ValidationError(f"File too large (max {max_bytes} bytes): {upload.name}")
+    return uploads
 
 
 def _make_status_note_field() -> forms.CharField:
@@ -35,6 +44,15 @@ def _make_status_note_field() -> forms.CharField:
     )
 
 
+def _make_close_email_attachments_field() -> MultipleFileField:
+    return MultipleFileField(
+        required=False,
+        widget=MultipleFileInput(attrs={"class": "form-control", "multiple": True}),
+        label="Close Email Attachments (optional)",
+        help_text="Optional. These files will be sent to the requester with the close notification. You can select multiple files at once.",
+    )
+
+
 class _TicketStatusNoteMixin:
     def __init__(self, *args, **kwargs):
         self._request_user = kwargs.pop("user", None)
@@ -42,6 +60,8 @@ class _TicketStatusNoteMixin:
 
         if "status" in self.fields and "status_note" in self.fields:
             ordered = ["status", "status_note"]
+            if "close_email_attachments" in self.fields:
+                ordered.append("close_email_attachments")
             for name in self.fields.keys():
                 if name not in ordered:
                     ordered.append(name)
@@ -55,6 +75,75 @@ class _TicketStatusNoteMixin:
 
         return cleaned_data
 
+    def clean_close_email_attachments(self):
+        return _clean_uploaded_files(self.cleaned_data.get("close_email_attachments"))
+
+
+def _build_department_email_options(include_group_mailboxes=False):
+    department_names = list(Department.objects.order_by("name").values_list("name", flat=True))
+    department_lookup = {name.casefold(): name for name in department_names}
+    options = {name: [] for name in department_names}
+
+    rows = CustomUser.objects.filter(is_active=True).exclude(email="").exclude(email__isnull=True).values_list(
+        "department",
+        "email",
+    )
+    for raw_department, raw_email in rows:
+        department_name = department_lookup.get(((raw_department or "").strip().casefold()))
+        email = (raw_email or "").strip().lower()
+        if not department_name or not email:
+            continue
+        options[department_name].append(email)
+
+    if include_group_mailboxes:
+        mailbox_rows = GroupMailboxEmail.objects.exclude(email="").exclude(email__isnull=True).values_list(
+            "department__name",
+            "email",
+        )
+        for raw_department, raw_email in mailbox_rows:
+            department_name = department_lookup.get(((raw_department or "").strip().casefold()))
+            email = (raw_email or "").strip().lower()
+            if not department_name or not email:
+                continue
+            options[department_name].append(email)
+
+    return {
+        name: sorted(set(emails))
+        for name, emails in options.items()
+    }
+
+
+def _build_assignable_emails_by_department_and_branch():
+    department_names = list(Department.objects.order_by("name").values_list("name", flat=True))
+    branch_names = list(Branch.objects.order_by("name").values_list("name", flat=True))
+    department_lookup = {name.casefold(): name for name in department_names}
+    branch_lookup = {name.casefold(): name for name in branch_names}
+    options = {
+        department: {branch: [] for branch in branch_names}
+        for department in department_names
+    }
+
+    rows = CustomUser.objects.filter(is_active=True).exclude(email="").exclude(email__isnull=True).values_list(
+        "department",
+        "branch",
+        "email",
+    )
+    for raw_department, raw_branch, raw_email in rows:
+        department_name = department_lookup.get(((raw_department or "").strip().casefold()))
+        branch_name = branch_lookup.get(((raw_branch or "").strip().casefold()))
+        email = (raw_email or "").strip().lower()
+        if not department_name or not branch_name or not email:
+            continue
+        options[department_name][branch_name].append(email)
+
+    return {
+        department: {
+            branch: sorted(set(emails))
+            for branch, emails in branch_map.items()
+        }
+        for department, branch_map in options.items()
+    }
+
 
 class TicketForm(forms.ModelForm):
     assign_email = forms.EmailField(
@@ -63,6 +152,7 @@ class TicketForm(forms.ModelForm):
             attrs={
                 "class": "form-control",
                 "placeholder": "Optional: assign directly to one person",
+                "list": "assign-email-suggestions",
             }
         ),
         label="Assign To Email (optional)",
@@ -78,8 +168,15 @@ class TicketForm(forms.ModelForm):
         required=False,
         choices=(),
         widget=forms.Select(attrs={"class": "form-control"}),
-        label="Assign Department",
+        label="Responsible Department",
         help_text="Select which department this ticket should be routed to.",
+    )
+    branch = forms.ChoiceField(
+        required=False,
+        choices=(),
+        widget=forms.Select(attrs={"class": "form-control"}),
+        label="Responsible Branch",
+        help_text="Select which branch this ticket belongs to.",
     )
 
     class Meta:
@@ -88,6 +185,7 @@ class TicketForm(forms.ModelForm):
             "subject",
             "request_type",
             "department",
+            "branch",
             "assign_email",
             "notify_email",
             "description",
@@ -103,7 +201,8 @@ class TicketForm(forms.ModelForm):
             "request_type": forms.Select(attrs={"class": "form-control"}),
             'notify_email': forms.EmailInput(attrs={
                 'class': 'form-control',
-                'placeholder': 'Optional: notify a person or group mailbox like hr@bestfinance.com.np'
+                'placeholder': 'Optional: notify a person or group mailbox like hr@bestfinance.com.np',
+                'list': 'notify-email-suggestions',
             }),
             'description': forms.Textarea(attrs={
                 'class': 'form-control',
@@ -116,7 +215,8 @@ class TicketForm(forms.ModelForm):
         labels = {
             'subject': 'Subject',
             "request_type": "Request Type",
-            'department': 'Assign Department',
+            'department': 'Responsible Department',
+            'branch': 'Responsible Branch',
             'notify_email': 'Notify Email (optional)',
             'description': 'Description',
             "impact": "Impact",
@@ -126,14 +226,29 @@ class TicketForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         self._request_user = kwargs.pop("user", None)
         self._assign_user_id = None
+        self._assign_user_department = ""
+        self._assign_user_branch = ""
+        self._notify_department = ""
         super().__init__(*args, **kwargs)
 
         department_names = Department.objects.order_by("name").values_list("name", flat=True)
         self.fields["department"].choices = [("", "Select department")] + [
             (name, name) for name in department_names
         ]
+        branch_names = Branch.objects.order_by("name").values_list("name", flat=True)
+        self.fields["branch"].choices = [("", "Select branch")] + [
+            (name, name) for name in branch_names
+        ]
+        request_user = getattr(self, "_request_user", None)
+        if request_user and getattr(request_user, "branch", None):
+            self.fields["branch"].initial = request_user.branch
+        self.assignable_emails_by_department_and_branch = _build_assignable_emails_by_department_and_branch()
+        self.notify_emails_by_department = _build_department_email_options(include_group_mailboxes=True)
+        self.fields["assign_email"].help_text = (
+            "Use a single user email here. Suggestions follow the selected department and branch."
+        )
         self.fields["notify_email"].help_text = (
-            "Use this for notifications or group mailboxes like hr@bestfinance.com.np or it@bestfinance.com.np."
+            "Use this for notifications or group mailboxes like hr@bestfinance.com.np. Suggestions follow the selected department."
         )
 
         self.order_fields(
@@ -141,6 +256,7 @@ class TicketForm(forms.ModelForm):
                 "subject",
                 "request_type",
                 "department",
+                "branch",
                 "assign_email",
                 "notify_email",
                 "description",
@@ -151,36 +267,95 @@ class TicketForm(forms.ModelForm):
         )
 
     def clean_attachments(self):
-        attachments = self.cleaned_data.get("attachments") or []
-        max_bytes = int(getattr(settings, "TICKET_ATTACHMENT_MAX_BYTES", 20 * 1024 * 1024))
-        for upload in attachments:
-            if upload.size and upload.size > max_bytes:
-                raise forms.ValidationError(f"File too large (max {max_bytes} bytes): {upload.name}")
-        return attachments
+        return _clean_uploaded_files(self.cleaned_data.get("attachments"))
 
     def clean_assign_email(self):
         value = (self.cleaned_data.get("assign_email") or "").strip().lower()
         self._assign_user_id = None
+        self._assign_user_department = ""
+        self._assign_user_branch = ""
         if not value:
             return value
 
         if is_group_mailbox_email(value):
             raise forms.ValidationError("Group mailboxes belong in Notify Email, not Assign To Email.")
 
-        matches = list(CustomUser.objects.filter(email__iexact=value).values_list("id", flat=True)[:2])
+        matches = list(
+            CustomUser.objects.filter(email__iexact=value, is_active=True).only("id", "department", "branch")[:2]
+        )
         if len(matches) != 1:
             raise forms.ValidationError("Enter the email of one existing user to assign this ticket.")
 
         request_user = getattr(self, "_request_user", None)
-        if request_user and matches[0] == request_user.id:
+        if request_user and matches[0].id == request_user.id:
             raise forms.ValidationError("You cannot assign a ticket to yourself.")
 
-        self._assign_user_id = matches[0]
+        self._assign_user_id = matches[0].id
+        self._assign_user_department = (getattr(matches[0], "department", "") or "").strip()
+        self._assign_user_branch = (getattr(matches[0], "branch", "") or "").strip()
         return value
 
     def clean_notify_email(self):
         value = (self.cleaned_data.get("notify_email") or "").strip().lower()
+        self._notify_department = ""
+        if not value:
+            return value
+
+        user_matches = list(
+            CustomUser.objects.filter(email__iexact=value, is_active=True).only("id", "department")[:2]
+        )
+        if len(user_matches) == 1:
+            self._notify_department = (getattr(user_matches[0], "department", "") or "").strip()
+            return value
+
+        mailbox = GroupMailboxEmail.objects.select_related("department").filter(email__iexact=value).first()
+        if mailbox and mailbox.department_id:
+            self._notify_department = (getattr(mailbox.department, "name", "") or "").strip()
         return value
+
+    def clean(self):
+        cleaned_data = super().clean()
+        department = (cleaned_data.get("department") or "").strip()
+        branch = (cleaned_data.get("branch") or "").strip()
+        assignee_department = (self._assign_user_department or "").strip()
+        assignee_branch = (self._assign_user_branch or "").strip()
+        notify_department = (self._notify_department or "").strip()
+
+        if (
+            department
+            and self._assign_user_id
+            and assignee_department.casefold() != department.casefold()
+            and "assign_email" not in self.errors
+        ):
+            self.add_error(
+                "assign_email",
+                f"The selected assignee must belong to the {department} department.",
+            )
+
+        if (
+            branch
+            and self._assign_user_id
+            and assignee_branch.casefold() != branch.casefold()
+            and "assign_email" not in self.errors
+        ):
+            self.add_error(
+                "assign_email",
+                f"The selected assignee must belong to the {branch} branch.",
+            )
+
+        if (
+            department
+            and cleaned_data.get("notify_email")
+            and notify_department
+            and notify_department.casefold() != department.casefold()
+            and "notify_email" not in self.errors
+        ):
+            self.add_error(
+                "notify_email",
+                f"The selected notify email must belong to the {department} department.",
+            )
+
+        return cleaned_data
 
     def save(self, commit=True):
         ticket = super().save(commit=False)
@@ -193,6 +368,7 @@ class TicketForm(forms.ModelForm):
 
 class TicketAssigneeUpdateForm(_TicketStatusNoteMixin, forms.ModelForm):
     status_note = _make_status_note_field()
+    close_email_attachments = _make_close_email_attachments_field()
 
     class Meta:
         model = Ticket
@@ -221,6 +397,7 @@ class TicketAssigneeUpdateForm(_TicketStatusNoteMixin, forms.ModelForm):
 
 class TicketUpdateForm(_TicketStatusNoteMixin, forms.ModelForm):
     status_note = _make_status_note_field()
+    close_email_attachments = _make_close_email_attachments_field()
 
     class Meta:
         model = Ticket

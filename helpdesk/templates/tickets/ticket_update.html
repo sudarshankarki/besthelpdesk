@@ -13,7 +13,7 @@
                     </div>
                 </div>
                 <div class="card-body">
-                    <form method="post">
+                    <form method="post" enctype="multipart/form-data">
                         {% csrf_token %}
                         {% for field in form %}
                         <div class="mb-3">
@@ -48,18 +48,25 @@
     (function () {
         const statusSelect = document.getElementById("id_status");
         const statusNote = document.getElementById("id_status_note");
+        const closeEmailAttachments = document.getElementById("id_close_email_attachments");
         if (!statusSelect || !statusNote) return;
 
-        const group = statusNote.closest(".mb-3");
-        if (!group) return;
+        const statusNoteGroup = statusNote.closest(".mb-3");
+        const closeEmailAttachmentsGroup = closeEmailAttachments ? closeEmailAttachments.closest(".mb-3") : null;
+        if (!statusNoteGroup) return;
 
-        const initialStatus = statusSelect.value;
+        const initialStatus = "{{ ticket.status|escapejs }}";
 
         function updateVisibility() {
             const value = statusSelect.value;
             const isClosingState = value === "resolved" || value === "closed";
             const isChangingToClosingState = isClosingState && value !== initialStatus;
-            group.style.display = isChangingToClosingState ? "" : "none";
+            const isChangingToClosed = value === "closed" && value !== initialStatus;
+
+            statusNoteGroup.style.display = isChangingToClosingState ? "" : "none";
+            if (closeEmailAttachmentsGroup) {
+                closeEmailAttachmentsGroup.style.display = isChangingToClosed ? "" : "none";
+            }
         }
 
         statusSelect.addEventListener("change", updateVisibility);

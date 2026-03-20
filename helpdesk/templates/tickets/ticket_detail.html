@@ -93,7 +93,7 @@
                 </div>
                 <div class="col-md-6">
                     <div class="ticket-meta">Branch</div>
-                    <div class="fw-semibold">{{ ticket.created_by.branch|default:"-" }}</div>
+                    <div class="fw-semibold">{% firstof ticket.branch ticket.created_by.branch "-" %}</div>
                 </div>
             </div>
         </div>
@@ -279,9 +279,14 @@
 
         <div id="chat-log" class="border rounded p-3 mb-3 bg-light" style="height: 320px; overflow-y: auto;">
             {% for msg in chat_messages %}
-                <div class="mb-2">
-                    <strong>{{ msg.author.username }}</strong>
-                    <small class="text-muted">({{ msg.created_at|date:"M d, Y H:i" }})</small>
+                <div class="mb-2" data-message-id="{{ msg.id }}">
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                        <strong>{{ msg.author.username }}</strong>
+                        <small class="text-muted">({{ msg.created_at|date:"M d, Y H:i" }})</small>
+                        {% if msg.author_id == user.id and not chat_locked %}
+                            <button type="button" class="btn btn-link btn-sm text-danger p-0" data-chat-delete-id="{{ msg.id }}">Delete</button>
+                        {% endif %}
+                    </div>
                     <div>{{ msg.body|linebreaksbr }}</div>
                     {% if msg.attachment %}
                         {% with ct=msg.attachment.content_type|default:"" %}
@@ -310,7 +315,7 @@
                     {% endif %}
                 </div>
             {% empty %}
-                <p class="text-muted mb-0">No messages yet. Start the conversation.</p>
+                <p class="text-muted mb-0" data-chat-empty-state>No messages yet. Start the conversation.</p>
             {% endfor %}
         </div>
         <div class="input-group">
@@ -318,9 +323,10 @@
             <button id="chat-message-submit" class="btn btn-primary" type="button" {% if chat_locked %}disabled{% endif %}>Send</button>
         </div>
         <div class="input-group mt-2">
-            <input type="file" id="chat-file-input" class="form-control" {% if chat_locked %}disabled{% endif %}>
+            <input type="file" id="chat-file-input" class="form-control" multiple {% if chat_locked %}disabled{% endif %}>
             <button id="chat-file-submit" class="btn btn-outline-primary" type="button" {% if chat_locked %}disabled{% endif %}>Upload</button>
         </div>
+        <div class="form-text mt-1">You can upload up to {{ chat_attachment_batch_limit }} files at once.</div>
         <form id="csrf-form" style="display: none;">{% csrf_token %}</form>
         {% endif %}
     </div>
@@ -332,6 +338,7 @@
     (function () {
         const ticketId = "{{ ticket.id }}";
         const currentUsername = "{{ user.username|escapejs }}";
+        const currentUserId = Number("{{ user.id }}") || 0;
         const chatLocked = {% if chat_locked %}true{% else %}false{% endif %};
         const iceServers = JSON.parse("{{ webrtc_ice_servers_json|escapejs }}");
         const protocol = window.location.protocol === "https:" ? "wss" : "ws";
@@ -340,7 +347,9 @@
         const submit = document.getElementById("chat-message-submit");
         const fileInput = document.getElementById("chat-file-input");
         const fileSubmit = document.getElementById("chat-file-submit");
+        const maxAttachmentFiles = Number("{{ chat_attachment_batch_limit }}") || 5;
         const uploadUrl = "{% url 'ticket_attachment_upload' ticket.id %}";
+        const deleteMessageUrlTemplate = "{% url 'ticket_chat_message_delete' ticket.id 0 %}";
         const markSeenUrl = "{% url 'ticket_chat_mark_seen' ticket.id %}";
         const callStart = document.getElementById("call-start");
         const callHangup = document.getElementById("call-hangup");
@@ -391,6 +400,46 @@
             return `${preview.slice(0, maxLength - 3).trimEnd()}...`;
         }
 
+        function removeEmptyChatState() {
+            chatLog.querySelectorAll("[data-chat-empty-state]").forEach(function (row) {
+                row.remove();
+            });
+        }
+
+        function ensureEmptyChatState() {
+            if (chatLog.querySelector("[data-message-id]") || chatLog.querySelector("[data-chat-empty-state]")) {
+                return;
+            }
+            const row = document.createElement("p");
+            row.className = "text-muted mb-0";
+            row.dataset.chatEmptyState = "true";
+            row.textContent = "No messages yet. Start the conversation.";
+            chatLog.appendChild(row);
+        }
+
+        function buildDeleteUrl(messageId) {
+            return deleteMessageUrlTemplate.replace(/\/0\/delete\/$/, `/${messageId}/delete/`);
+        }
+
+        function canDeleteMessage(data) {
+            return !chatLocked && Number(data && data.author_id) === currentUserId && Number(data && data.id) > 0;
+        }
+
+        function buildDeleteButtonHtml(data) {
+            if (!canDeleteMessage(data)) {
+                return "";
+            }
+            return `<button type="button" class="btn btn-link btn-sm text-danger p-0" data-chat-delete-id="${Number(data.id)}">Delete</button>`;
+        }
+
+        function removeMessage(messageId) {
+            const row = chatLog.querySelector(`[data-message-id="${messageId}"]`);
+            if (row) {
+                row.remove();
+            }
+            ensureEmptyChatState();
+        }
+
         function showChatToast(title, message) {
             if (typeof window.supportDeskShowToast !== "function") return;
             window.supportDeskShowToast({
@@ -422,6 +471,7 @@
             if (data && data.id && document.querySelector(`[data-message-id="${data.id}"]`)) {
                 return;
             }
+            removeEmptyChatState();
             const row = document.createElement("div");
             row.className = "mb-2";
             if (data && data.id) {
@@ -451,7 +501,15 @@
                     attachmentHtml = `<div class="mt-1"><a href="${downloadUrl}">${safeName}</a>${sizeText ? ` <small class="text-muted">(${escapeHtml(sizeText)})</small>` : ""}</div>`;
                 }
             }
-            row.innerHTML = `<strong>${escapeHtml(data.author || "")}</strong> <small class="text-muted">(${escapeHtml(data.created_at || "")})</small><div>${safeBody}</div>${attachmentHtml}`;
+            row.innerHTML = `
+                <div class="d-flex flex-wrap align-items-center gap-2">
+                    <strong>${escapeHtml(data.author || "")}</strong>
+                    <small class="text-muted">(${escapeHtml(data.created_at || "")})</small>
+                    ${buildDeleteButtonHtml(data)}
+                </div>
+                <div>${safeBody}</div>
+                ${attachmentHtml}
+            `;
             chatLog.appendChild(row);
             chatLog.scrollTop = chatLog.scrollHeight;
         }
@@ -460,6 +518,10 @@
             const data = JSON.parse(event.data);
             if (data && data.type === "error") {
                 showChatToast("Chat unavailable", data.error || "Chat is unavailable for this ticket.");
+                return;
+            }
+            if (data && data.type === "deleted") {
+                removeMessage(data.id);
                 return;
             }
             appendMessage(data);
@@ -501,13 +563,19 @@
 
         async function uploadFile() {
             if (chatLocked || fileSubmit.disabled) return;
-            const file = fileInput.files[0];
-            if (!file) return;
+            const files = Array.from(fileInput.files || []);
+            if (!files.length) return;
+            if (files.length > maxAttachmentFiles) {
+                alert(`You can upload up to ${maxAttachmentFiles} files at once.`);
+                return;
+            }
 
             fileSubmit.disabled = true;
             try {
                 const form = new FormData();
-                form.append("file", file);
+                files.forEach(function (file) {
+                    form.append("file", file);
+                });
 
                 const resp = await fetch(uploadUrl, {
                     method: "POST",
@@ -517,9 +585,17 @@
                     body: form,
                 });
                 const data = await resp.json();
-                if (data && data.ok && data.event) {
-                    appendMessage(data.event);
-                    showChatToast("Attachment sent", `${file.name} was added to the chat.`);
+                const events = Array.isArray(data && data.events)
+                    ? data.events
+                    : (data && data.event ? [data.event] : []);
+                if (data && data.ok && events.length) {
+                    events.forEach(appendMessage);
+                    showChatToast(
+                        "Attachment sent",
+                        files.length === 1
+                            ? `${files[0].name} was added to the chat.`
+                            : `${files.length} attachments were added to the chat.`
+                    );
                     fileInput.value = "";
                 } else {
                     alert((data && data.error) ? data.error : "Upload failed");
@@ -532,6 +608,47 @@
         }
 
         fileSubmit.addEventListener("click", uploadFile);
+
+        async function deleteMessage(messageId, button) {
+            if (chatLocked || !messageId) return;
+            if (!window.confirm("Delete this chat message?")) {
+                return;
+            }
+
+            if (button) {
+                button.disabled = true;
+            }
+            try {
+                const resp = await fetch(buildDeleteUrl(messageId), {
+                    method: "POST",
+                    headers: {
+                        "X-CSRFToken": getCsrfToken(),
+                    },
+                });
+                const data = await resp.json();
+                if (data && data.ok) {
+                    removeMessage(data.deleted_message_id || messageId);
+                    showChatToast("Message deleted", "Your chat message was removed.");
+                } else {
+                    alert((data && data.error) ? data.error : "Delete failed");
+                }
+            } catch (e) {
+                alert("Delete failed");
+            } finally {
+                if (button) {
+                    button.disabled = false;
+                }
+            }
+        }
+
+        chatLog.addEventListener("click", function (event) {
+            const button = event.target.closest("[data-chat-delete-id]");
+            if (!button) {
+                return;
+            }
+            event.preventDefault();
+            deleteMessage(button.dataset.chatDeleteId, button);
+        });
 
         // ---- WebRTC audio call (signaling via Channels) ----
         let mySender = null;

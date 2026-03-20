@@ -1,3 +1,5 @@
+from urllib.parse import urlencode
+
 from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth import login, authenticate, logout
@@ -141,20 +143,31 @@ def logout_view(request):
 def dashboard(request):
     user = request.user
 
-    # Fix this line: use 'user' instead of 'created_by'
-    user_tickets = Ticket.objects.filter(created_by=user).order_by('-created_at')[:5]
+    user_ticket_queryset = Ticket.objects.filter(created_by=user)
+    user_tickets = user_ticket_queryset.order_by('-created_at')[:5]
 
-    # Get ticket counts by status
-    new_tickets = Ticket.objects.filter(created_by=user, status="new").count()
-    in_progress_tickets = Ticket.objects.filter(created_by=user, status='in_progress').count()
-    resolved_tickets = Ticket.objects.filter(created_by=user, status='resolved').count()
+    new_tickets = user_ticket_queryset.filter(status="new").count()
+    in_progress_tickets = user_ticket_queryset.filter(status='in_progress').count()
+    resolved_tickets = user_ticket_queryset.filter(status='resolved').count()
+    closed_tickets = user_ticket_queryset.filter(status='closed').count()
+
+    def _ticket_list_url(**params):
+        base_url = reverse("ticket_list")
+        query = urlencode({key: value for key, value in params.items() if value not in {"", None}})
+        return f"{base_url}?{query}" if query else base_url
 
     context = {
         'user_tickets': user_tickets,
         "new_tickets": new_tickets,
         'in_progress_tickets': in_progress_tickets,
         'resolved_tickets': resolved_tickets,
-        "total_tickets": new_tickets + in_progress_tickets + resolved_tickets,
+        "closed_tickets": closed_tickets,
+        "total_tickets": user_ticket_queryset.count(),
+        "all_tickets_url": _ticket_list_url(scope="created_by_me"),
+        "new_tickets_url": _ticket_list_url(status="new", scope="created_by_me"),
+        "in_progress_tickets_url": _ticket_list_url(status="in_progress", scope="created_by_me"),
+        "resolved_tickets_url": _ticket_list_url(status="resolved", scope="created_by_me"),
+        "closed_tickets_url": _ticket_list_url(status="closed", scope="created_by_me"),
     }
 
     return render(request, 'accounts/dashboard.html', context)

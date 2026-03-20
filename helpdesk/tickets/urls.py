@@ -17,6 +17,7 @@ urlpatterns = [
     path('<int:ticket_id>/image/download/', views.ticket_image_download, name='ticket_image_download'),
     path('<int:ticket_id>/close/<str:token>/', views.ticket_close_via_email, name='ticket_close_via_email'),
     path('<int:ticket_id>/attachments/upload/', views.ticket_attachment_upload, name='ticket_attachment_upload'),
+    path('<int:ticket_id>/messages/<int:message_id>/delete/', views.ticket_chat_message_delete, name='ticket_chat_message_delete'),
     path('<int:ticket_id>/attachments/<int:attachment_id>/view/', views.ticket_attachment_view, name='ticket_attachment_view'),
     path('<int:ticket_id>/attachments/<int:attachment_id>/download/', views.ticket_attachment_download, name='ticket_attachment_download'),
     path('support/', views.support_dashboard, name='support_dashboard'),

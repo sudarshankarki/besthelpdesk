@@ -10,6 +10,12 @@
             <div class="ticket-meta mt-1">Search by Ticket ID, creator username, assigned username, or a date range.</div>
         </div>
         <form method="get" class="d-flex flex-wrap gap-2 align-items-center">
+            {% if selected_status_group %}
+                <input type="hidden" name="status_group" value="{{ selected_status_group }}">
+            {% endif %}
+            {% if selected_assignment_scope %}
+                <input type="hidden" name="assignment_scope" value="{{ selected_assignment_scope }}">
+            {% endif %}
             <input
                 type="text"
                 name="q"

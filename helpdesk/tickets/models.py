@@ -117,7 +117,19 @@ def _department_from_group_notify_email(notify_email: str) -> str | None:
 def _is_ticket_department_member(user, ticket) -> bool:
     user_department = (getattr(user, "department", "") or "").strip()
     ticket_department = (getattr(ticket, "department", "") or "").strip()
-    return bool(user_department and ticket_department and user_department.casefold() == ticket_department.casefold())
+    ticket_branch = (getattr(ticket, "branch", "") or "").strip()
+    if not ticket_branch:
+        requester = getattr(ticket, "created_by", None)
+        ticket_branch = (getattr(requester, "branch", "") or "").strip()
+    user_branch = (getattr(user, "branch", "") or "").strip()
+    return bool(
+        user_department
+        and ticket_department
+        and user_branch
+        and ticket_branch
+        and user_department.casefold() == ticket_department.casefold()
+        and user_branch.casefold() == ticket_branch.casefold()
+    )
 
 
 def ticket_image_upload_to(instance: "Ticket", filename: str) -> str:
@@ -192,6 +204,7 @@ class Ticket(models.Model):
     )
     notify_email = models.EmailField(blank=True, default="")
     department = models.CharField(max_length=100, blank=True, default="")
+    branch = models.CharField(max_length=100, blank=True, default="")
     description = models.TextField()
     impact = models.CharField(max_length=20, choices=IMPACT_CHOICES, default="single_user")
     urgency = models.CharField(max_length=20, choices=URGENCY_CHOICES, default="medium")
@@ -250,10 +263,14 @@ class Ticket(models.Model):
     def save(self, *args, **kwargs):
         self.notify_email = _normalize_email(self.notify_email)
         self.department = (self.department or "").strip()
+        self.branch = (self.branch or "").strip()
         if not self.department:
             derived = _department_from_group_notify_email(self.notify_email)
             if derived:
                 self.department = derived
+        if not self.branch:
+            creator = getattr(self, "created_by", None)
+            self.branch = (getattr(creator, "branch", "") or "").strip()
 
         previous_status = None
         previous_assigned_to_id = None

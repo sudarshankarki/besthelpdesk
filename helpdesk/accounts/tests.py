@@ -10,6 +10,7 @@ from django.urls import reverse
 import re
 from accounts.admin import CustomUserAdminForm
 from accounts.models import Department, PasswordHistory
+from tickets.models import Ticket
 
 
 class LogoutAllDevicesTests(TestCase):
@@ -210,3 +211,42 @@ class CustomUserAdminDepartmentTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, '<select name="department"')
         self.assertContains(response, 'option value="HR"')
+
+
+class DashboardTicketStatusLinkTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            username="dashboard_user",
+            password="testpass123",
+        )
+        Ticket.objects.create(
+            created_by=self.user,
+            subject="New dashboard ticket",
+            description="Should appear in new count",
+            priority="medium",
+            status="new",
+        )
+        Ticket.objects.create(
+            created_by=self.user,
+            subject="In progress dashboard ticket",
+            description="Should appear in in-progress count",
+            priority="medium",
+            status="in_progress",
+        )
+        Ticket.objects.create(
+            created_by=self.user,
+            subject="Closed dashboard ticket",
+            description="Should appear in closed count",
+            priority="medium",
+            status="closed",
+        )
+        self.client.force_login(self.user)
+
+    def test_dashboard_cards_link_to_filtered_ticket_list(self):
+        response = self.client.get(reverse("dashboard"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f'{reverse("ticket_list")}?scope=created_by_me')
+        self.assertContains(response, f'{reverse("ticket_list")}?status=new&amp;scope=created_by_me')
+        self.assertContains(response, f'{reverse("ticket_list")}?status=in_progress&amp;scope=created_by_me')
+        self.assertContains(response, f'{reverse("ticket_list")}?status=closed&amp;scope=created_by_me')

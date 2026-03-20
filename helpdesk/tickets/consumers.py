@@ -69,6 +69,7 @@ class TicketChatConsumer(AsyncWebsocketConsumer):
                 "id": message["id"],
                 "body": message["body"],
                 "author": message["author"],
+                "author_id": message["author_id"],
                 "created_at": message["created_at"],
             },
         )
@@ -90,12 +91,21 @@ class TicketChatConsumer(AsyncWebsocketConsumer):
             "id": event["id"],
             "body": event["body"],
             "author": event["author"],
+            "author_id": event.get("author_id"),
             "created_at": event["created_at"],
         }
         if event.get("attachment"):
             payload["attachment"] = event["attachment"]
 
         await self.send(text_data=json.dumps(payload))
+
+    async def chat_message_deleted(self, event):
+        allowed = await self._can_access_ticket(self.scope["user"], self.ticket_id)
+        if not allowed:
+            await self.close(code=4003)
+            return
+
+        await self.send(text_data=json.dumps({"type": "deleted", "id": event["id"]}))
 
     @sync_to_async
     def _can_access_ticket(self, user, ticket_id):
@@ -117,6 +127,7 @@ class TicketChatConsumer(AsyncWebsocketConsumer):
             "id": message.id,
             "body": message.body,
             "author": message.author.username,
+            "author_id": message.author_id,
             "created_at": created_local.strftime("%Y-%m-%d %H:%M"),
         }
 

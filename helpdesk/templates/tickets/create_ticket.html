@@ -52,6 +52,17 @@
                         {% endfor %}
                     </div>
 
+                    <div class="mb-3">
+                        <label class="form-label fw-bold" for="{{ form.branch.id_for_label }}">{{ form.branch.label }}</label>
+                        {{ form.branch }}
+                        {% if form.branch.help_text %}
+                            <div class="form-text">{{ form.branch.help_text }}</div>
+                        {% endif %}
+                        {% for error in form.branch.errors %}
+                            <div class="text-danger small">{{ error }}</div>
+                        {% endfor %}
+                    </div>
+
                     <div class="row g-3 mb-3">
                         <div class="col-md-6">
                             <div class="border rounded-3 p-3 h-100 bg-light">
@@ -64,6 +75,8 @@
                                 {% for error in form.assign_email.errors %}
                                     <div class="text-danger small">{{ error }}</div>
                                 {% endfor %}
+                                <datalist id="assign-email-suggestions"></datalist>
+                                <div id="assign-email-suggestion-help" class="form-text mt-2"></div>
                             </div>
                         </div>
                         <div class="col-md-6">
@@ -77,6 +90,8 @@
                                 {% for error in form.notify_email.errors %}
                                     <div class="text-danger small">{{ error }}</div>
                                 {% endfor %}
+                                <datalist id="notify-email-suggestions"></datalist>
+                                <div id="notify-email-suggestion-help" class="form-text mt-2"></div>
                             </div>
                         </div>
                     </div>
@@ -125,4 +140,124 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+    {{ form.assignable_emails_by_department_and_branch|json_script:"assign-email-options" }}
+    {{ form.notify_emails_by_department|json_script:"notify-email-options" }}
+    <script>
+        (function () {
+            const departmentSelect = document.getElementById("{{ form.department.id_for_label }}");
+            const branchSelect = document.getElementById("{{ form.branch.id_for_label }}");
+            const assignEmailInput = document.getElementById("{{ form.assign_email.id_for_label }}");
+            const notifyEmailInput = document.getElementById("{{ form.notify_email.id_for_label }}");
+            const datalist = document.getElementById("assign-email-suggestions");
+            const helpText = document.getElementById("assign-email-suggestion-help");
+            const notifyDatalist = document.getElementById("notify-email-suggestions");
+            const notifyHelpText = document.getElementById("notify-email-suggestion-help");
+            const assignOptionsEl = document.getElementById("assign-email-options");
+            const notifyOptionsEl = document.getElementById("notify-email-options");
+
+            if (
+                !departmentSelect
+                || !branchSelect
+                || !assignEmailInput
+                || !notifyEmailInput
+                || !datalist
+                || !helpText
+                || !notifyDatalist
+                || !notifyHelpText
+                || !assignOptionsEl
+                || !notifyOptionsEl
+            ) {
+                return;
+            }
+
+            let assignOptionsByDepartment = {};
+            let notifyOptionsByDepartment = {};
+            try {
+                assignOptionsByDepartment = JSON.parse(assignOptionsEl.textContent || "{}");
+            } catch (error) {
+                assignOptionsByDepartment = {};
+            }
+            try {
+                notifyOptionsByDepartment = JSON.parse(notifyOptionsEl.textContent || "{}");
+            } catch (error) {
+                notifyOptionsByDepartment = {};
+            }
+
+            function renderSuggestions(optionsByDepartment, targetDatalist, targetHelpText, emptyMessage, availableLabel) {
+                const department = (departmentSelect.value || "").trim();
+                const emails = Array.isArray(optionsByDepartment[department]) ? optionsByDepartment[department] : [];
+
+                targetDatalist.innerHTML = "";
+                emails.forEach(function (email) {
+                    const option = document.createElement("option");
+                    option.value = email;
+                    targetDatalist.appendChild(option);
+                });
+
+                if (!department) {
+                    targetHelpText.textContent = emptyMessage;
+                    return;
+                }
+
+                if (!emails.length) {
+                    targetHelpText.textContent = `No ${availableLabel} were found for the selected department.`;
+                    return;
+                }
+
+                targetHelpText.textContent = emails.length === 1
+                    ? `1 ${availableLabel.slice(0, -1)} is available for the selected department.`
+                    : `${emails.length} ${availableLabel} are available for the selected department.`;
+            }
+
+            function renderAssignEmailSuggestions() {
+                const department = (departmentSelect.value || "").trim();
+                const branch = (branchSelect.value || "").trim();
+                const branchOptions = assignOptionsByDepartment[department] || {};
+                const emails = Array.isArray(branchOptions[branch]) ? branchOptions[branch] : [];
+
+                datalist.innerHTML = "";
+                emails.forEach(function (email) {
+                    const option = document.createElement("option");
+                    option.value = email;
+                    datalist.appendChild(option);
+                });
+
+                if (!department || !branch) {
+                    helpText.textContent = "Select a department and branch to see assignee email suggestions.";
+                    return;
+                }
+
+                if (!emails.length) {
+                    helpText.textContent = "No assignee emails were found for the selected department and branch.";
+                    return;
+                }
+
+                helpText.textContent = emails.length === 1
+                    ? "1 assignee email is available for the selected department and branch."
+                    : `${emails.length} assignee emails are available for the selected department and branch.`;
+            }
+
+            function renderNotifyEmailSuggestions() {
+                renderSuggestions(
+                    notifyOptionsByDepartment,
+                    notifyDatalist,
+                    notifyHelpText,
+                    "Select a department to see notify email suggestions.",
+                    "notify emails"
+                );
+            }
+
+            function renderAllSuggestions() {
+                renderAssignEmailSuggestions();
+                renderNotifyEmailSuggestions();
+            }
+
+            departmentSelect.addEventListener("change", renderAllSuggestions);
+            branchSelect.addEventListener("change", renderAllSuggestions);
+            renderAllSuggestions();
+        })();
+    </script>
 {% endblock %}

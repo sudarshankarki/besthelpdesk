@@ -6,12 +6,15 @@ import mimetypes
 import os
 import time
 from datetime import date
+from io import BytesIO
 from urllib.parse import urlencode, urlsplit
 
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.decorators import user_passes_test
 from django.contrib import messages
 from django.conf import settings
+from django.core.files.uploadedfile import InMemoryUploadedFile
+from django.core.files.uploadhandler import FileUploadHandler
 from django.core.mail import EmailMessage, send_mail
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.http import FileResponse, JsonResponse, StreamingHttpResponse
@@ -19,6 +22,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.db.models import Count, Max, Q
 from django.urls import reverse
 from django.utils import timezone
+from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.decorators.http import require_POST
 
 from asgiref.sync import async_to_sync
@@ -39,11 +43,48 @@ from .models import (
 )
 from .forms import TicketAssigneeUpdateForm, TicketChatPrivacyForm, TicketForm, TicketUpdateForm
 from .notifications import build_chat_notification_payload, get_chat_notification_target_ids
+from .purge import _try_delete_minio_objects
 
 try:
     from botocore.exceptions import ClientError  # type: ignore
 except ModuleNotFoundError:  # pragma: no cover
     ClientError = None  # type: ignore
+
+
+TICKET_CHAT_ATTACHMENT_MAX_FILES = 5
+SUPPORT_STATUS_GROUPS = {
+    "new": ("new", "acknowledged"),
+    "in_progress": ("in_progress", "waiting_on_user", "waiting_on_third_party"),
+    "resolved": ("resolved",),
+    "closed": ("closed", "cancelled_duplicate"),
+}
+
+
+class RequestOnlyMemoryFileUploadHandler(FileUploadHandler):
+    """Keep uploaded files in memory so close-email attachments are never persisted on disk."""
+
+    def new_file(self, *args, **kwargs):
+        super().new_file(*args, **kwargs)
+        self.file = BytesIO()
+
+    def receive_data_chunk(self, raw_data, start):
+        self.file.write(raw_data)
+
+    def file_complete(self, file_size):
+        self.file.seek(0)
+        return InMemoryUploadedFile(
+            file=self.file,
+            field_name=self.field_name,
+            name=self.file_name,
+            content_type=self.content_type,
+            size=file_size,
+            charset=self.charset,
+            content_type_extra=self.content_type_extra,
+        )
+
+
+def _use_request_only_upload_handlers(request):
+    request.upload_handlers = [RequestOnlyMemoryFileUploadHandler(request)]
 
 
 def _format_ws_datetime(dt):
@@ -68,11 +109,17 @@ def _get_support_filters(request):
     filters = {
         "q": _clean_query_value(request.GET.get("q")),
         "status": _clean_query_value(request.GET.get("status")),
+        "status_group": _clean_query_value(request.GET.get("status_group")),
         "created_by_username": _clean_query_value(request.GET.get("created_by_username")),
         "assigned_to_username": _clean_query_value(request.GET.get("assigned_to_username")),
+        "assignment_scope": _clean_query_value(request.GET.get("assignment_scope")),
         "date_from": _clean_query_value(request.GET.get("date_from")),
         "date_to": _clean_query_value(request.GET.get("date_to")),
     }
+    if filters["status_group"] not in SUPPORT_STATUS_GROUPS:
+        filters["status_group"] = ""
+    if filters["assignment_scope"] not in {"", "unassigned", "assigned"}:
+        filters["assignment_scope"] = ""
     date_from = _parse_filter_date(filters["date_from"])
     date_to = _parse_filter_date(filters["date_to"])
     if date_from and date_to and date_from > date_to:
@@ -81,13 +128,19 @@ def _get_support_filters(request):
 
 
 def _apply_support_filters(queryset, filters):
+    if filters["status_group"]:
+        queryset = queryset.filter(status__in=SUPPORT_STATUS_GROUPS[filters["status_group"]])
     if filters["status"]:
         queryset = queryset.filter(status=filters["status"])
     if filters["q"]:
         queryset = queryset.filter(ticket_id__icontains=filters["q"])
     if filters["created_by_username"]:
         queryset = queryset.filter(created_by__username__icontains=filters["created_by_username"])
-    if filters["assigned_to_username"]:
+    if filters["assignment_scope"] == "unassigned":
+        queryset = queryset.filter(assigned_to__isnull=True)
+    elif filters["assignment_scope"] == "assigned":
+        queryset = queryset.filter(assigned_to__isnull=False)
+    elif filters["assigned_to_username"]:
         queryset = queryset.filter(assigned_to__username__icontains=filters["assigned_to_username"])
 
     date_from = _parse_filter_date(filters["date_from"])
@@ -116,7 +169,22 @@ def _build_support_url(route_name, filters, **overrides):
     return f"{base_url}?{query}" if query else base_url
 
 
+def _count_support_status_group(queryset, group_name):
+    return queryset.filter(status__in=SUPPORT_STATUS_GROUPS[group_name]).count()
+
+
+def _count_support_status_group_by_assignment(queryset, group_name, is_assigned):
+    return queryset.filter(
+        status__in=SUPPORT_STATUS_GROUPS[group_name],
+        assigned_to__isnull=not is_assigned,
+    ).count()
+
+
 def _normalize_department(value):
+    return (value or "").strip().casefold()
+
+
+def _normalize_branch(value):
     return (value or "").strip().casefold()
 
 
@@ -124,21 +192,42 @@ def _user_department_name(user):
     return (getattr(user, "department", "") or "").strip()
 
 
+def _user_branch_name(user):
+    return (getattr(user, "branch", "") or "").strip()
+
+
+def _ticket_branch_name(ticket):
+    branch = (getattr(ticket, "branch", "") or "").strip()
+    if branch:
+        return branch
+    requester = getattr(ticket, "created_by", None)
+    return (getattr(requester, "branch", "") or "").strip()
+
+
 def _department_ticket_q(user):
     department = _user_department_name(user)
-    if not department:
+    branch = _user_branch_name(user)
+    if not department or not branch:
         return Q(pk__in=[])
-    return Q(department__iexact=department)
+    return Q(department__iexact=department) & (
+        Q(branch__iexact=branch) | (Q(branch="") & Q(created_by__branch__iexact=branch))
+    )
 
 
 def _is_department_ticket_member(user, ticket):
     if not getattr(user, "is_authenticated", False):
         return False
+    user_department = _normalize_department(_user_department_name(user))
+    ticket_department = _normalize_department(getattr(ticket, "department", ""))
+    user_branch = _normalize_branch(_user_branch_name(user))
+    ticket_branch = _normalize_branch(_ticket_branch_name(ticket))
     return bool(
-        _normalize_department(_user_department_name(user))
-        and _normalize_department(getattr(ticket, "department", ""))
-        and _normalize_department(_user_department_name(user))
-        == _normalize_department(getattr(ticket, "department", ""))
+        user_department
+        and ticket_department
+        and user_branch
+        and ticket_branch
+        and user_department == ticket_department
+        and user_branch == ticket_branch
     )
 
 
@@ -406,6 +495,7 @@ def _build_ticket_detail_context(request, ticket, chat_privacy_form=None):
         'can_view_chat': can_view_chat,
         'can_manage_chat_privacy': can_manage_ticket_chat_privacy(request.user, ticket),
         'chat_privacy_form': chat_privacy_form,
+        'chat_attachment_batch_limit': TICKET_CHAT_ATTACHMENT_MAX_FILES,
         'webrtc_ice_servers_json': json.dumps(webrtc_ice_servers),
     }
 
@@ -456,6 +546,33 @@ def _attach_ticket_chat_flags(tickets, user):
         )
 
     return tickets
+
+
+def _build_ticket_attachment_event(ticket, message, attachment, author):
+    return {
+        "id": message.id,
+        "body": message.body,
+        "author": author,
+        "author_id": message.author_id,
+        "created_at": _format_ws_datetime(message.created_at),
+        "attachment": {
+            "id": attachment.id,
+            "filename": attachment.filename,
+            "size": attachment.size,
+            "content_type": attachment.content_type,
+            "view_url": reverse("ticket_attachment_view", args=[ticket.id, attachment.id]),
+            "download_url": reverse("ticket_attachment_download", args=[ticket.id, attachment.id]),
+        },
+    }
+
+
+def _can_delete_ticket_message(user, message):
+    if not getattr(user, "is_authenticated", False):
+        return False
+    if message.author_id == user.id:
+        return True
+    attachment = message.attachment if hasattr(message, "attachment") else None
+    return bool(attachment and attachment.uploaded_by_id == user.id)
 
 
 @login_required
@@ -555,8 +672,13 @@ def create_ticket(request):
 @login_required
 def ticket_list(request):
     query = _clean_query_value(request.GET.get("q"))
+    status = _clean_query_value(request.GET.get("status"))
+    scope = _clean_query_value(request.GET.get("scope"))
     date_from = _clean_query_value(request.GET.get("date_from"))
     date_to = _clean_query_value(request.GET.get("date_to"))
+    allowed_statuses = {value for value, _label in Ticket.TICKET_STATUS}
+    if status not in allowed_statuses:
+        status = ""
     parsed_date_from = _parse_filter_date(date_from)
     parsed_date_to = _parse_filter_date(date_to)
     if parsed_date_from and parsed_date_to and parsed_date_from > parsed_date_to:
@@ -569,8 +691,13 @@ def ticket_list(request):
             Q(created_by=request.user) | Q(assigned_to=request.user) | _department_ticket_q(request.user)
         ).distinct()
 
+    if scope == "created_by_me":
+        tickets = tickets.filter(created_by=request.user)
+
     if query:
         tickets = tickets.filter(ticket_id__icontains=query)
+    if status:
+        tickets = tickets.filter(status=status)
     if date_from:
         parsed = _parse_filter_date(date_from)
         if parsed:
@@ -589,9 +716,12 @@ def ticket_list(request):
         {
             'tickets': tickets,
             'query': query,
+            'selected_status': status,
+            'selected_scope': scope,
+            'status_choices': Ticket.TICKET_STATUS,
             'date_from': date_from,
             'date_to': date_to,
-            'has_active_filters': bool(query or date_from or date_to),
+            'has_active_filters': bool(query or status or scope or date_from or date_to),
         },
     )
 
@@ -919,18 +1049,27 @@ def ticket_attachment_upload(request, ticket_id):
     if is_ticket_chat_locked(ticket):
         return JsonResponse({"ok": False, "error": ticket_chat_locked_message(ticket)}, status=400)
 
-    upload = request.FILES.get("file")
-    if not upload:
+    uploads = request.FILES.getlist("file") or request.FILES.getlist("files")
+    if not uploads:
         return JsonResponse({"ok": False, "error": "No file uploaded"}, status=400)
-
-    if upload.size and upload.size > settings.TICKET_ATTACHMENT_MAX_BYTES:
+    if len(uploads) > TICKET_CHAT_ATTACHMENT_MAX_FILES:
         return JsonResponse(
             {
                 "ok": False,
-                "error": f"File too large (max {settings.TICKET_ATTACHMENT_MAX_BYTES} bytes)",
+                "error": f"You can upload up to {TICKET_CHAT_ATTACHMENT_MAX_FILES} attachments at once.",
             },
             status=400,
         )
+
+    for upload in uploads:
+        if upload.size and upload.size > settings.TICKET_ATTACHMENT_MAX_BYTES:
+            return JsonResponse(
+                {
+                    "ok": False,
+                    "error": f"File too large (max {settings.TICKET_ATTACHMENT_MAX_BYTES} bytes): {upload.name}",
+                },
+                status=400,
+            )
 
     try:
         minio_cfg = get_minio_config()
@@ -938,59 +1077,100 @@ def ticket_attachment_upload(request, ticket_id):
     except Exception:
         return JsonResponse({"ok": False, "error": "Attachment storage is not configured"}, status=500)
 
-    object_key = TicketMessageAttachment.build_object_key(ticket.id, upload.name)
-    content_type = getattr(upload, "content_type", "") or "application/octet-stream"
+    events = []
+    for upload in uploads:
+        object_key = TicketMessageAttachment.build_object_key(ticket.id, upload.name)
+        content_type = getattr(upload, "content_type", "") or "application/octet-stream"
 
-    s3.upload_fileobj(
-        upload,
-        minio_cfg.bucket,
-        object_key,
-        ExtraArgs={"ContentType": content_type},
-    )
-
-    message = TicketMessage.objects.create(
-        ticket=ticket,
-        author=request.user,
-        body=f"Attachment uploaded: {upload.name}",
-    )
-    attachment = TicketMessageAttachment.objects.create(
-        ticket=ticket,
-        message=message,
-        uploaded_by=request.user,
-        object_key=object_key,
-        filename=upload.name,
-        content_type=content_type,
-        size=upload.size or 0,
-    )
-
-    event = {
-        "id": message.id,
-        "body": message.body,
-        "author": request.user.username,
-        "created_at": _format_ws_datetime(message.created_at),
-        "attachment": {
-            "id": attachment.id,
-            "filename": attachment.filename,
-            "size": attachment.size,
-            "content_type": attachment.content_type,
-            "view_url": reverse("ticket_attachment_view", args=[ticket.id, attachment.id]),
-            "download_url": reverse("ticket_attachment_download", args=[ticket.id, attachment.id]),
-        },
-    }
-
-    channel_layer = get_channel_layer()
-    async_to_sync(channel_layer.group_send)(
-        f"ticket_chat_{ticket.id}",
-        {"type": "chat_message", **event},
-    )
-    notify_payload = build_chat_notification_payload(ticket, request.user, message.body)
-    for target_id in get_chat_notification_target_ids(ticket, request.user.id):
-        async_to_sync(channel_layer.group_send)(
-            f"user_notify_{target_id}",
-            {"type": "notify", "payload": notify_payload},
+        s3.upload_fileobj(
+            upload,
+            minio_cfg.bucket,
+            object_key,
+            ExtraArgs={"ContentType": content_type},
         )
 
-    return JsonResponse({"ok": True, "event": event})
+        message = TicketMessage.objects.create(
+            ticket=ticket,
+            author=request.user,
+            body=f"Attachment uploaded: {upload.name}",
+        )
+        attachment = TicketMessageAttachment.objects.create(
+            ticket=ticket,
+            message=message,
+            uploaded_by=request.user,
+            object_key=object_key,
+            filename=upload.name,
+            content_type=content_type,
+            size=upload.size or 0,
+        )
+        events.append(_build_ticket_attachment_event(ticket, message, attachment, request.user.username))
+
+    channel_layer = get_channel_layer()
+    if channel_layer:
+        try:
+            for event in events:
+                async_to_sync(channel_layer.group_send)(
+                    f"ticket_chat_{ticket.id}",
+                    {"type": "chat_message", **event},
+                )
+
+            notify_body = events[0]["body"] if len(events) == 1 else f"{len(events)} attachments uploaded"
+            notify_payload = build_chat_notification_payload(ticket, request.user, notify_body)
+            for target_id in get_chat_notification_target_ids(ticket, request.user.id):
+                async_to_sync(channel_layer.group_send)(
+                    f"user_notify_{target_id}",
+                    {"type": "notify", "payload": notify_payload},
+                )
+        except Exception:
+            pass
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "event": events[0] if len(events) == 1 else None,
+            "events": events,
+        }
+    )
+
+
+@login_required
+@require_POST
+def ticket_chat_message_delete(request, ticket_id, message_id):
+    ticket = get_object_or_404(Ticket, id=ticket_id)
+    if not can_access_ticket_chat(request.user, ticket):
+        return JsonResponse({"ok": False, "error": "Forbidden"}, status=403)
+    if is_ticket_chat_locked(ticket):
+        return JsonResponse({"ok": False, "error": ticket_chat_locked_message(ticket)}, status=400)
+
+    message = get_object_or_404(
+        TicketMessage.objects.select_related("attachment"),
+        id=message_id,
+        ticket=ticket,
+    )
+    if not _can_delete_ticket_message(request.user, message):
+        return JsonResponse(
+            {"ok": False, "error": "You can delete only your own chat messages."},
+            status=403,
+        )
+
+    attachment = message.attachment if hasattr(message, "attachment") else None
+    object_keys = [attachment.object_key] if attachment and attachment.object_key else []
+    _try_delete_minio_objects(object_keys)
+
+    deleted_message_id = message.id
+    message.delete()
+
+    channel_layer = get_channel_layer()
+    if channel_layer:
+        try:
+            async_to_sync(channel_layer.group_send)(
+                f"ticket_chat_{ticket.id}",
+                {"type": "chat_message_deleted", "id": deleted_message_id},
+            )
+        except Exception:
+            pass
+
+    return JsonResponse({"ok": True, "deleted_message_id": deleted_message_id})
 
 
 @login_required
@@ -1147,22 +1327,37 @@ def support_dashboard(request):
     context = {
         "query": filters["q"],
         "selected_status": filters["status"],
+        "selected_status_group": filters["status_group"],
         "created_by_username": filters["created_by_username"],
         "assigned_to_username": filters["assigned_to_username"],
+        "selected_assignment_scope": filters["assignment_scope"],
         "date_from": filters["date_from"],
         "date_to": filters["date_to"],
         "has_active_filters": _has_active_support_filters(filters),
         "support_queue_url": _build_support_url("support_queue", filters),
-        "new_tickets_url": _build_support_url("support_queue", filters, status="new"),
-        "in_progress_tickets_url": _build_support_url("support_queue", filters, status="in_progress"),
-        "resolved_tickets_url": _build_support_url("support_queue", filters, status="resolved"),
-        "closed_tickets_url": _build_support_url("support_queue", filters, status="closed"),
+        "new_assigned_tickets_url": _build_support_url(
+            "support_queue",
+            filters,
+            status_group="new",
+            assignment_scope="assigned",
+            status="",
+        ),
+        "new_unassigned_tickets_url": _build_support_url(
+            "support_queue",
+            filters,
+            status_group="new",
+            assignment_scope="unassigned",
+            status="",
+        ),
+        "in_progress_tickets_url": _build_support_url("support_queue", filters, status_group="in_progress", status=""),
+        "resolved_tickets_url": _build_support_url("support_queue", filters, status_group="resolved", status=""),
+        "closed_tickets_url": _build_support_url("support_queue", filters, status_group="closed", status=""),
         "total_tickets": tickets.count(),
-        "new_tickets": tickets.filter(status="new").count(),
-        "in_progress_tickets": tickets.filter(status="in_progress").count(),
-        "resolved_tickets": tickets.filter(status="resolved").count(),
-        "closed_tickets": tickets.filter(status="closed").count(),
-        "unassigned_tickets": tickets.filter(assigned_to__isnull=True).count(),
+        "new_assigned_tickets": _count_support_status_group_by_assignment(tickets, "new", True),
+        "new_unassigned_tickets": _count_support_status_group_by_assignment(tickets, "new", False),
+        "in_progress_tickets": _count_support_status_group(tickets, "in_progress"),
+        "resolved_tickets": _count_support_status_group(tickets, "resolved"),
+        "closed_tickets": _count_support_status_group(tickets, "closed"),
         "my_assigned_tickets": tickets.filter(assigned_to=request.user).count(),
         "recent_tickets": recent_tickets,
         "agent_workload": agent_workload,
@@ -1186,8 +1381,10 @@ def support_queue(request):
             "tickets": tickets,
             "query": filters["q"],
             "selected_status": filters["status"],
+            "selected_status_group": filters["status_group"],
             "created_by_username": filters["created_by_username"],
             "assigned_to_username": filters["assigned_to_username"],
+            "selected_assignment_scope": filters["assignment_scope"],
             "date_from": filters["date_from"],
             "date_to": filters["date_to"],
             "has_active_filters": _has_active_support_filters(filters),
@@ -1195,8 +1392,16 @@ def support_queue(request):
     )
 
 
+@csrf_exempt
 @login_required
 def ticket_update(request, ticket_id):
+    if request.method == "POST" and request.content_type and request.content_type.startswith("multipart/form-data"):
+        _use_request_only_upload_handlers(request)
+    return _ticket_update_protected(request, ticket_id)
+
+
+@csrf_protect
+def _ticket_update_protected(request, ticket_id):
     ticket = get_object_or_404(Ticket, id=ticket_id)
     can_manage = _is_support_user(request.user) or ticket.assigned_to_id == request.user.id
     if not can_manage:
@@ -1209,7 +1414,7 @@ def ticket_update(request, ticket_id):
         previous_assigned_to_id = ticket.assigned_to_id
         previous_status = ticket.status
         ticket._assignment_actor_id = request.user.id
-        form = FormClass(request.POST, instance=ticket, user=request.user)
+        form = FormClass(request.POST, request.FILES, instance=ticket, user=request.user)
         if form.is_valid():
             new_status = form.cleaned_data.get("status")
             if new_status == "resolved":
@@ -1230,6 +1435,7 @@ def ticket_update(request, ticket_id):
                 return render(request, "tickets/ticket_update.html", {"ticket": ticket, "form": form})
 
             status_note = (form.cleaned_data.get("status_note") or "").strip()
+            close_email_uploads = form.cleaned_data.get("close_email_attachments") or []
             ticket = form.save(commit=False)
             if previous_status != ticket.status and ticket.status == "resolved":
                 ticket.resolved_note = status_note
@@ -1335,31 +1541,40 @@ def ticket_update(request, ticket_id):
                         closed_at = "-"
 
                     ticket_url = request.build_absolute_uri(reverse("ticket_detail", args=[ticket.id]))
+                    close_email_attachments = _build_email_attachments(close_email_uploads)
+                    mail_lines = [
+                        f"Hello {ticket.created_by.get_full_name() or ticket.created_by.username},",
+                        "",
+                        "Your helpdesk ticket has been marked as Closed.",
+                        "",
+                        f"Ticket Number: {ticket.ticket_id}",
+                        f"Subject: {ticket.subject}",
+                        f"Request Type: {ticket.get_request_type_display()}",
+                        f"Department: {ticket.department or '-'}",
+                        f"Impact: {ticket.get_impact_display()}",
+                        f"Urgency: {ticket.get_urgency_display()}",
+                        f"Priority: {ticket.get_priority_display()}",
+                        f"Status: {ticket.get_status_display()}",
+                        f"Closed At: {closed_at}",
+                        f"Closed By: {request.user.username} ({request.user.email or '-'})",
+                    ]
+                    if ticket.closed_note:
+                        mail_lines.extend(["", f"Closure Details:\n{ticket.closed_note}"])
+                    if close_email_attachments:
+                        attachment_count = len(close_email_attachments)
+                        noun = "attachment" if attachment_count == 1 else "attachments"
+                        verb = "is" if attachment_count == 1 else "are"
+                        mail_lines.extend(["", f"{attachment_count} {noun} {verb} included with this email."])
+                    mail_lines.extend(["", f"Ticket Link:\n{ticket_url}"])
 
                     mail_subject = f"Ticket Closed: {ticket.ticket_id}"
-                    mail_body = (
-                        f"Hello {ticket.created_by.get_full_name() or ticket.created_by.username},\n\n"
-                        f"Your helpdesk ticket has been marked as Closed.\n\n"
-                        f"Ticket Number: {ticket.ticket_id}\n"
-                        f"Subject: {ticket.subject}\n"
-                        f"Request Type: {ticket.get_request_type_display()}\n"
-                        f"Department: {ticket.department or '-'}\n"
-                        f"Impact: {ticket.get_impact_display()}\n"
-                        f"Urgency: {ticket.get_urgency_display()}\n"
-                        f"Priority: {ticket.get_priority_display()}\n"
-                        f"Status: {ticket.get_status_display()}\n"
-                        f"Closed At: {closed_at}\n"
-                        f"Closed By: {request.user.username} ({request.user.email or '-'})\n"
-                        f"Closure Details:\n{ticket.closed_note or '-'}\n\n"
-                        f"Ticket Link:\n{ticket_url}\n"
-                    )
+                    mail_body = "\n".join(mail_lines)
                     try:
-                        send_mail(
-                            subject=mail_subject,
-                            message=mail_body,
-                            from_email=get_outgoing_from_email(),
-                            recipient_list=[requester_email],
-                            fail_silently=False,
+                        _send_email_message(
+                            mail_subject,
+                            mail_body,
+                            [requester_email],
+                            email_attachments=close_email_attachments,
                         )
                     except Exception:
                         messages.warning(request, "Ticket closed, but requester email could not be sent.")
