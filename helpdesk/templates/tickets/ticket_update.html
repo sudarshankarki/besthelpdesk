@@ -48,11 +48,13 @@
     (function () {
         const statusSelect = document.getElementById("id_status");
         const statusNote = document.getElementById("id_status_note");
-        const closeEmailAttachments = document.getElementById("id_close_email_attachments");
+        const statusEmailAttachments = document.getElementById("id_status_email_attachments");
+        const statusCcEmails = document.getElementById("id_status_cc_emails");
         if (!statusSelect || !statusNote) return;
 
         const statusNoteGroup = statusNote.closest(".mb-3");
-        const closeEmailAttachmentsGroup = closeEmailAttachments ? closeEmailAttachments.closest(".mb-3") : null;
+        const statusEmailAttachmentsGroup = statusEmailAttachments ? statusEmailAttachments.closest(".mb-3") : null;
+        const statusCcEmailsGroup = statusCcEmails ? statusCcEmails.closest(".mb-3") : null;
         if (!statusNoteGroup) return;
 
         const initialStatus = "{{ ticket.status|escapejs }}";
@@ -61,11 +63,14 @@
             const value = statusSelect.value;
             const isClosingState = value === "resolved" || value === "closed";
             const isChangingToClosingState = isClosingState && value !== initialStatus;
-            const isChangingToClosed = value === "closed" && value !== initialStatus;
+            const isChangingToResolved = value === "resolved" && value !== initialStatus;
 
             statusNoteGroup.style.display = isChangingToClosingState ? "" : "none";
-            if (closeEmailAttachmentsGroup) {
-                closeEmailAttachmentsGroup.style.display = isChangingToClosed ? "" : "none";
+            if (statusEmailAttachmentsGroup) {
+                statusEmailAttachmentsGroup.style.display = isChangingToResolved ? "" : "none";
+            }
+            if (statusCcEmailsGroup) {
+                statusCcEmailsGroup.style.display = isChangingToResolved ? "" : "none";
             }
         }
 

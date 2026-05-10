@@ -1,0 +1,323 @@
+{% extends 'base.html' %}
+
+{% block title %}Incident Report Template{% endblock %}
+
+{% block content %}
+<style>
+    .bfc-template-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.65rem;
+        margin-bottom: 1rem;
+    }
+
+    .bfc-word-page {
+        background: #fff;
+        color: #111;
+        padding: 1rem;
+        border: 1px solid #d7d7d7;
+        overflow-x: auto;
+    }
+
+    .bfc-incident-doc {
+        width: 100%;
+        min-width: 860px;
+        border-collapse: collapse;
+        table-layout: fixed;
+        border: 2px solid #000;
+        background: #fff;
+        color: #000;
+        font-size: 0.95rem;
+    }
+
+    .bfc-incident-doc td,
+    .bfc-incident-doc th {
+        border: 1px solid #000;
+        padding: 0.4rem 0.5rem;
+        vertical-align: top;
+    }
+
+    .bfc-title {
+        text-align: center;
+        font-size: 1.35rem;
+        font-weight: 800;
+        height: 52px;
+        vertical-align: middle !important;
+    }
+
+    .bfc-company {
+        text-align: center;
+        font-weight: 700;
+        height: 42px;
+        vertical-align: middle !important;
+    }
+
+    .bfc-section {
+        font-weight: 800;
+        text-transform: uppercase;
+        background: #f1f1f1;
+    }
+
+    .bfc-label {
+        font-weight: 700;
+        white-space: nowrap;
+    }
+
+    .bfc-incident-doc .form-control,
+    .bfc-incident-doc .form-select {
+        border: 0;
+        border-radius: 0;
+        padding: 0;
+        min-height: 1.8rem;
+        background: transparent;
+        box-shadow: none;
+    }
+
+    .bfc-incident-doc textarea.form-control {
+        min-height: 4.6rem;
+        resize: vertical;
+    }
+
+    .bfc-severity-table {
+        width: 100%;
+        border-collapse: collapse;
+        text-align: center;
+    }
+
+    .bfc-severity-table td {
+        border: 0;
+        padding: 0.2rem;
+        text-align: center;
+    }
+
+    .bfc-severity-table input {
+        width: 1rem;
+        height: 1rem;
+    }
+
+    @media print {
+        .app-sidebar,
+        .app-header,
+        .sidebar-toggle,
+        .bfc-template-actions,
+        .btn {
+            display: none !important;
+        }
+
+        .app-shell,
+        .app-main {
+            display: block !important;
+            padding: 0 !important;
+        }
+
+        .bfc-word-page {
+            border: 0;
+            padding: 0;
+            overflow: visible;
+        }
+    }
+</style>
+
+<form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+
+    <div class="bfc-template-actions">
+        <button type="submit" class="btn btn-primary" name="pdf_mode" value="download">Download PDF</button>
+        <button type="button" class="btn btn-outline-secondary" onclick="window.print()">Print View</button>
+    </div>
+
+    {% if form.non_field_errors %}
+    <div class="alert alert-danger">
+        {% for error in form.non_field_errors %}
+            <div>{{ error }}</div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% if form.errors %}
+    <div class="alert alert-danger">
+        {% for field in form %}
+            {% for error in field.errors %}
+                <div>{{ field.label }}: {{ error }}</div>
+            {% endfor %}
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="bfc-word-page">
+        <table class="bfc-incident-doc">
+            <colgroup>
+                <col style="width: 26%;">
+                <col style="width: 24%;">
+                <col style="width: 26%;">
+                <col style="width: 24%;">
+            </colgroup>
+            <tr>
+                <td colspan="4" class="bfc-title">Incident Report Template</td>
+            </tr>
+            <tr>
+                <td colspan="4" class="bfc-company">Best Finance Company Ltd.</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Version</td>
+                <td>&nbsp;</td>
+                <td class="bfc-label">Date</td>
+                <td>&nbsp;</td>
+            </tr>
+            <tr>
+                <td colspan="4" class="bfc-section">INCIDENT REPORT INFORMATION</td>
+            </tr>
+            <tr>
+                <td colspan="4" class="bfc-section">BREACH REPORTING EMPLOYEE’S INFORMATION</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Reporting Employee’s Name:</td>
+                <td>{{ form.reporting_employee_name }}</td>
+                <td class="bfc-label">Designation:</td>
+                <td>{{ form.reporting_employee_designation }}</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Email:</td>
+                <td>{{ form.reporting_employee_email }}</td>
+                <td class="bfc-label">Contact Number:</td>
+                <td>{{ form.reporting_employee_contact }}</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Date of Report:</td>
+                <td colspan="3">{{ form.date_of_report }}</td>
+            </tr>
+            <tr>
+                <td colspan="4" class="bfc-section">INCIDENT DETAILS</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Incident ID:</td>
+                <td>{{ form.incident_id }}</td>
+                <td class="bfc-label">Date &amp; Time of Occurrence:</td>
+                <td>{{ form.date_time_of_occurrence }}</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Date &amp; Time of Detection:</td>
+                <td>{{ form.date_time_of_detection }}</td>
+                <td class="bfc-label">Source of Incident:</td>
+                <td>{{ form.source_of_incident }}</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Incident Location (IP):</td>
+                <td colspan="3">{{ form.incident_location_ip }}</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Incident Description:</td>
+                <td colspan="3">{{ form.incident_description }}</td>
+            </tr>
+            <tr>
+                <td colspan="4" class="bfc-section">IMPACT ASSESSMENT</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Unit or Department Impacted:</td>
+                <td colspan="3">{{ form.unit_or_department_impacted }}</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">System(s) Impacted:</td>
+                <td colspan="3">{{ form.systems_impacted }}</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Network Impacted:</td>
+                <td colspan="3">{{ form.network_impacted }}</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Operations Impacted:</td>
+                <td colspan="3">{{ form.operations_impacted }}</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Incident Severity:</td>
+                <td colspan="3">
+                    <table class="bfc-severity-table">
+                        <tr>
+                            <td>Critical</td>
+                            <td>High</td>
+                            <td>Medium</td>
+                            <td>Low</td>
+                        </tr>
+                        <tr>
+                            <td><input type="checkbox" name="{{ form.severity_level.html_name }}" value="critical" {% if form.severity_level.value == "critical" %}checked{% endif %} onclick="document.querySelectorAll('input[name={{ form.severity_level.html_name }}]').forEach((box) => { if (box !== this) box.checked = false; });"></td>
+                            <td><input type="checkbox" name="{{ form.severity_level.html_name }}" value="high" {% if form.severity_level.value == "high" %}checked{% endif %} onclick="document.querySelectorAll('input[name={{ form.severity_level.html_name }}]').forEach((box) => { if (box !== this) box.checked = false; });"></td>
+                            <td><input type="checkbox" name="{{ form.severity_level.html_name }}" value="medium" {% if form.severity_level.value == "medium" %}checked{% endif %} onclick="document.querySelectorAll('input[name={{ form.severity_level.html_name }}]').forEach((box) => { if (box !== this) box.checked = false; });"></td>
+                            <td><input type="checkbox" name="{{ form.severity_level.html_name }}" value="low" {% if form.severity_level.value == "low" %}checked{% endif %} onclick="document.querySelectorAll('input[name={{ form.severity_level.html_name }}]').forEach((box) => { if (box !== this) box.checked = false; });"></td>
+                        </tr>
+                    </table>
+                </td>
+            </tr>
+            <tr>
+                <td colspan="4" class="bfc-section">INCIDENT RECOVERY DETAILS</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Recovery Actions:</td>
+                <td colspan="3">{{ form.recovery_actions }}</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Recovery Timeframe:</td>
+                <td colspan="3">{{ form.recovery_timeframe }}</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Post Recovery Verification:</td>
+                <td colspan="3">{{ form.post_recovery_verification }}</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Communication:</td>
+                <td colspan="3">{{ form.recovery_communication }}</td>
+            </tr>
+            <tr>
+                <td colspan="4" class="bfc-section">INCIDENT RESPONSE DETAILS</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Quarantine Process:</td>
+                <td colspan="3">{{ form.quarantine_process }}</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Immediate Actions:</td>
+                <td colspan="3">{{ form.immediate_actions }}</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Root Cause Analysis:</td>
+                <td colspan="3">{{ form.root_cause_analysis }}</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Eradication:</td>
+                <td colspan="3">{{ form.eradication_method }}</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Lessons Learned:</td>
+                <td colspan="3">{{ form.lessons_learned }}</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Recommendations for Improvement:</td>
+                <td colspan="3">{{ form.recommendations_for_improvement }}</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Action Plan:</td>
+                <td colspan="3">{{ form.action_plan }}</td>
+            </tr>
+            <tr>
+                <td colspan="4" class="bfc-section">INCIDENT INFORMATION SHARING</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Unit or Department Requiring Notification:</td>
+                <td colspan="3">{{ form.unit_or_department_requiring_notification }}</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Point of Contact:</td>
+                <td colspan="3">{{ form.point_of_contact }}</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Date of Notification:</td>
+                <td colspan="3">{{ form.date_of_notification }}</td>
+            </tr>
+            <tr>
+                <td colspan="4" class="bfc-section">ATTACHMENTS (IF APPLICABLE)</td>
+            </tr>
+            <tr>
+                <td colspan="4">{{ form.evidence_attachments }}</td>
+            </tr>
+        </table>
+    </div>
+</form>
+{% endblock %}

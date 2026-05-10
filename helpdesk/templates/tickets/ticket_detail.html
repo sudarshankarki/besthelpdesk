@@ -3,7 +3,7 @@
 {% block title %}Ticket Detail{% endblock %}
 
 {% block content %}
-<div class="surface p-3 mb-3">
+<div class="surface p-3 mb-3 ticket-overdue-panel{% if ticket.overdue_attention_level %} ticket-overdue-{{ ticket.overdue_attention_level }}{% endif %}">
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
         <div>
             <div class="d-flex flex-wrap align-items-center gap-2">
@@ -23,26 +23,38 @@
                 {% endif %}
                 <span class="mx-1">•</span>
                 <span>{{ ticket.created_at|date:"M d, Y H:i" }}</span>
-                {% if ticket.department %}
+                {% if not is_remote_access_request and ticket.department %}
                     <span class="mx-1">•</span>
                     <span>{{ ticket.department }}</span>
                 {% endif %}
-                <span class="mx-1">•</span>
-                <span>Assigned: {{ ticket.assigned_to|default:"Unassigned" }}</span>
+                {% if is_remote_access_request %}
+                    <span class="mx-1">•</span>
+                    {% if remote_access_approval.recommender %}
+                        <span>Recommended By: {{ remote_access_approval.recommender }}</span>
+                        <span class="mx-1">•</span>
+                    {% endif %}
+                    <span>Approved By: {{ remote_access_approval.approver|default:"-" }}</span>
+                {% else %}
+                    <span class="mx-1">•</span>
+                    <span>Assigned: {{ ticket.display_assignee|default:"Unassigned" }}</span>
+                {% endif %}
             </div>
         </div>
         <div class="d-flex flex-wrap gap-2 justify-content-end align-items-center">
+            {% if ticket.overdue_attention_level %}
+                <span class="ticket-overdue-badge ticket-overdue-{{ ticket.overdue_attention_level }}">
+                    {{ ticket.overdue_attention_label }}
+                </span>
+            {% endif %}
+            {% if ticket.show_priority_badge %}
             <span class="badge-soft {% if ticket.priority == 'high' or ticket.priority == 'critical' or ticket.priority == 'urgent' %}chip-danger{% elif ticket.priority == 'medium' %}chip-warning{% else %}chip-primary{% endif %}">
                 {{ ticket.get_priority_display }}
             </span>
-            <span class="badge-soft {% if ticket.status == 'resolved' %}chip-success{% elif ticket.status == 'new' or ticket.status == 'open' %}chip-primary{% elif ticket.status == 'acknowledged' %}chip-primary{% elif ticket.status == 'in_progress' or ticket.status == 'waiting_on_user' or ticket.status == 'waiting_on_third_party' %}chip-warning{% elif ticket.status == 'closed' %}chip-danger{% else %}chip-muted{% endif %}">
-                {{ ticket.get_status_display }}
-            </span>
-            {% if user.is_staff or user.is_superuser or user.is_itsupport %}
-                <a href="{% url 'support_queue' %}" class="btn btn-sm btn-outline-secondary">Back</a>
-            {% else %}
-                <a href="{% url 'ticket_list' %}" class="btn btn-sm btn-outline-secondary">Back</a>
             {% endif %}
+            <span class="badge-soft {{ ticket.display_status_chip_class }}">
+                {{ ticket.display_status_label }}
+            </span>
+            <a href="{{ ticket_back_url }}" class="btn btn-sm btn-outline-secondary">Back</a>
         </div>
     </div>
 </div>
@@ -93,7 +105,7 @@
                 </div>
                 <div class="col-md-6">
                     <div class="ticket-meta">Branch</div>
-                    <div class="fw-semibold">{% firstof ticket.branch ticket.created_by.branch "-" %}</div>
+                    <div class="fw-semibold">{{ ticket.created_by.branch|default:"-" }}</div>
                 </div>
             </div>
         </div>
@@ -101,16 +113,44 @@
 </div>
 {% endif %}
 
+{% if not is_remote_access_request %}
 <div class="card surface border-0 mb-3">
     <div class="card-body">
         <div class="row g-3">
             <div class="col-md-6">
                 <div class="ticket-meta">Assigned To</div>
-                <div class="fw-semibold">{{ ticket.assigned_to|default:"Unassigned" }}</div>
+                <div class="fw-semibold">{{ ticket.display_assignee|default:"Unassigned" }}</div>
+            </div>
+            <div class="col-md-6">
+                <div class="ticket-meta">Notify Email</div>
+                <div class="fw-semibold">
+                    {% if ticket.notify_email %}
+                        <a class="text-decoration-none" href="mailto:{{ ticket.notify_email }}">{{ ticket.notify_email }}</a>
+                    {% else %}
+                        -
+                    {% endif %}
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="ticket-meta">CC Emails</div>
+                <div class="fw-semibold">
+                    {% if ticket.cc_email_list %}
+                        {% for email in ticket.cc_email_list %}
+                            {% if not forloop.first %}<span class="text-muted">, </span>{% endif %}
+                            <a class="text-decoration-none" href="mailto:{{ email }}">{{ email }}</a>
+                        {% endfor %}
+                    {% else %}
+                        -
+                    {% endif %}
+                </div>
             </div>
             <div class="col-md-6">
                 <div class="ticket-meta">Department</div>
                 <div class="fw-semibold">{{ ticket.department|default:"-" }}</div>
+            </div>
+            <div class="col-md-6">
+                <div class="ticket-meta">Responsible Branch</div>
+                <div class="fw-semibold">{{ ticket.branch|default:"-" }}</div>
             </div>
             <div class="col-md-6">
                 <div class="ticket-meta">Request Type</div>
@@ -133,6 +173,10 @@
                 <div class="fw-semibold">{{ ticket.closed_at|date:"M d, Y H:i"|default:"-" }}</div>
             </div>
             <div class="col-md-6">
+                <div class="ticket-meta">Resolved By</div>
+                <div class="fw-semibold">{{ ticket.display_resolved_by|default:"-" }}</div>
+            </div>
+            <div class="col-md-6">
                 <div class="ticket-meta">Time to Resolve</div>
                 <div class="fw-semibold">{{ ticket.formatted_ttr }}</div>
             </div>
@@ -151,9 +195,494 @@
         </div>
         <hr>
         <h5 class="fw-bold">Description</h5>
-        <p class="mb-0">{{ ticket.description|linebreaks }}</p>
+        <p class="mb-0">{{ display_description|linebreaks }}</p>
     </div>
 </div>
+{% endif %}
+
+{% if show_incident_report %}
+<div class="card surface border-0 mb-3">
+    <div class="card-header bg-white border-0">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div>
+                <h6 class="mb-0 fw-bold">Incident Report</h6>
+                <div class="ticket-meta mt-1">Saved response record for the incident, including impact, timeline, communication, review, and signatures.</div>
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+                {% if incident_report %}
+                    <a href="{% url 'ticket_incident_report_download' ticket.id %}?format=pdf" class="btn btn-sm btn-outline-secondary">Download PDF</a>
+                    <a href="{% url 'ticket_incident_report' ticket.id %}" class="btn btn-sm btn-outline-primary">{% if can_manage_incident_report %}Edit Incident Report{% else %}View Incident Report{% endif %}</a>
+                {% elif can_manage_incident_report %}
+                    <a href="{% url 'ticket_incident_report' ticket.id %}" class="btn btn-sm btn-primary">Create Incident Report</a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="card-body">
+        {% if incident_report %}
+        <div class="row g-3">
+            <div class="col-md-6">
+                <div class="ticket-meta">Incident Title</div>
+                <div class="fw-semibold">{{ incident_report.display_title }}</div>
+            </div>
+            <div class="col-md-6">
+                <div class="ticket-meta">Incident Reference</div>
+                <div class="fw-semibold">{{ incident_report.display_incident_reference }}</div>
+            </div>
+            <div class="col-md-6">
+                <div class="ticket-meta">Service Affected</div>
+                <div class="fw-semibold">{{ incident_report.get_service_affected_display }}</div>
+            </div>
+            <div class="col-md-6">
+                <div class="ticket-meta">Downtime Duration</div>
+                <div class="fw-semibold">{{ incident_report.formatted_downtime }}</div>
+            </div>
+            <div class="col-md-6">
+                <div class="ticket-meta">Current Status</div>
+                <div class="fw-semibold">{{ incident_report.current_status|default:"-" }}</div>
+            </div>
+            <div class="col-md-6">
+                <div class="ticket-meta">Branch Impacted</div>
+                <div class="fw-semibold">{{ incident_report.branch_impacted|default:"-" }}</div>
+            </div>
+            <div class="col-md-6">
+                <div class="ticket-meta">Regulatory Impact (NRB)</div>
+                <div class="fw-semibold">{{ incident_report.regulatory_impact|yesno:"Yes,No" }}</div>
+            </div>
+            <div class="col-md-6">
+                <div class="ticket-meta">Incident Registered Person</div>
+                <div class="fw-semibold">{{ incident_report.display_registered_person }}</div>
+            </div>
+            <div class="col-md-6">
+                <div class="ticket-meta">Incident Notified Chain</div>
+                <div class="fw-semibold">{{ incident_report.display_notified_person }}</div>
+            </div>
+            <div class="col-md-6">
+                <div class="ticket-meta">Created</div>
+                <div class="fw-semibold">{{ incident_report.created_at|date:"M d, Y H:i" }}{% if incident_report.created_by %} by {{ incident_report.created_by }}{% endif %}</div>
+            </div>
+            <div class="col-md-6">
+                <div class="ticket-meta">Last Updated</div>
+                <div class="fw-semibold">{{ incident_report.updated_at|date:"M d, Y H:i" }}{% if incident_report.updated_by %} by {{ incident_report.updated_by }}{% endif %}</div>
+            </div>
+        </div>
+        {% else %}
+        <div class="text-muted">
+            No incident report has been created for this ticket yet.
+            {% if can_manage_incident_report %}
+                Use the button above to add the first report.
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+{% if remote_access_approval %}
+<style>
+    .cbs-detail-wrap {
+        overflow-x: auto;
+    }
+
+    .cbs-detail-table {
+        width: 100%;
+        min-width: 900px;
+        border-collapse: collapse;
+        table-layout: fixed;
+        border: 2px solid #000;
+        color: #000;
+        background: #fff;
+        font-size: 0.98rem;
+    }
+
+    .cbs-detail-table th,
+    .cbs-detail-table td {
+        border: 1.5px solid #000;
+        padding: 0.36rem 0.45rem;
+        vertical-align: middle;
+        color: #000;
+    }
+
+    .cbs-detail-title {
+        text-align: center;
+        font-weight: 800;
+        font-size: 1.08rem;
+    }
+
+    .cbs-detail-section,
+    .cbs-detail-label,
+    .cbs-detail-code,
+    .cbs-detail-approval {
+        font-weight: 800;
+    }
+
+    .cbs-detail-code,
+    .cbs-detail-check,
+    .cbs-detail-approval {
+        text-align: center;
+    }
+
+    .cbs-detail-signature {
+        height: 72px;
+        text-align: center;
+    }
+
+    .cbs-detail-signature img {
+        max-width: 100%;
+        max-height: 58px;
+        object-fit: contain;
+    }
+
+    .cbs-signed-text {
+        font-weight: 800;
+        color: #000;
+    }
+
+    .cbs-branch-detail-signoff {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .cbs-branch-detail-signoff > div {
+        border-right: 1px solid #1f2937;
+        border-bottom: 1px solid #1f2937;
+        min-width: 0;
+        padding: 0.35rem 0.45rem;
+    }
+
+    .cbs-branch-detail-signoff > div:nth-child(4n) {
+        border-right: 0;
+    }
+</style>
+<div class="card surface border-0 mb-3">
+    <div class="card-header bg-white border-0">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div>
+                <h6 class="mb-0 fw-bold">{{ approval_request_kind }} Approval</h6>
+                <div class="ticket-meta mt-1">Requested by, optionally recommended by, and finally approved through the digital sign-off chain.</div>
+            </div>
+            <span class="badge-soft {% if remote_access_approval.status == 'approved' %}chip-success{% elif remote_access_approval.status == 'rejected' %}chip-danger{% else %}chip-warning{% endif %}">
+                {{ remote_access_approval.get_status_display }}
+            </span>
+            {% if approval_request_kind == "CBS Access" %}
+                <a href="{% url 'cbs_access_request_download' ticket.id %}?format=pdf" class="btn btn-sm btn-outline-secondary">Download PDF</a>
+                {% if remote_access_approval.status == 'rejected' and ticket.created_by_id == user.id %}
+                    <a href="{% url 'cbs_access_request_correct' ticket.id %}" class="btn btn-sm btn-primary">Correct &amp; Resubmit</a>
+                {% endif %}
+            {% endif %}
+        </div>
+    </div>
+    <div class="card-body">
+        {% if cbs_access_data %}
+        <div class="cbs-detail-wrap">
+            <table class="cbs-detail-table">
+                <tr>
+                    <td colspan="6" class="cbs-detail-title">USER ID REQUEST FORM&nbsp; FOR CBS (For {{ cbs_office_label|default:"Head Office" }} Only)</td>
+                </tr>
+                <tr>
+                    <td colspan="6" class="cbs-detail-section">USER INFORMATION:</td>
+                </tr>
+                <tr>
+                    <td class="cbs-detail-label">Name</td>
+                    <td colspan="5">{{ cbs_access_data.name|default:"-" }}</td>
+                </tr>
+                <tr>
+                    <td class="cbs-detail-label">Designation</td>
+                    <td colspan="5">{{ cbs_access_data.designation|default:"-" }}</td>
+                </tr>
+                <tr>
+                    <td class="cbs-detail-label">{% if cbs_office_type == "branch" %}Branch / Department{% else %}Department{% endif %}</td>
+                    <td colspan="5">{{ cbs_access_data.department|default:"-" }}</td>
+                </tr>
+                <tr>
+                    <td class="cbs-detail-label">Employee ID</td>
+                    <td colspan="5">{{ cbs_access_data.employee_id|default:"-" }}</td>
+                </tr>
+                <tr>
+                    <td class="cbs-detail-label">Type of User</td>
+                    <td></td>
+                    <td colspan="2">{% if cbs_access_data.user_type == "new" %}X{% endif %} New&nbsp; User</td>
+                    <td colspan="2"></td>
+                </tr>
+                <tr>
+                    <td></td>
+                    <td></td>
+                    <td colspan="2">{% if cbs_access_data.user_type == "amendment" %}X{% endif %} Amendment for Old User</td>
+                    <td class="cbs-detail-label">Old User ID</td>
+                    <td>{{ cbs_access_data.old_user_id|default:"-" }}</td>
+                </tr>
+                <tr>
+                    <td colspan="6" class="cbs-detail-section">USER REQUIREMENTS AND APPROVALS:</td>
+                </tr>
+                <tr>
+                    <th>User Group</th>
+                    <th>Description</th>
+                    <th>Please (X)</th>
+                    <th>User Group</th>
+                    <th>Description</th>
+                    <th>Please (X)</th>
+                </tr>
+                {% for row in cbs_user_group_rows %}
+                <tr>
+                    <td class="cbs-detail-code">{{ row.left_code }}</td>
+                    <td>{{ row.left_label }}</td>
+                    <td class="cbs-detail-check">{% if row.left_checked %}X{% endif %}</td>
+                    <td class="cbs-detail-code">{{ row.right_code }}</td>
+                    <td>{{ row.right_label }}</td>
+                    <td class="cbs-detail-check">{% if row.right_checked %}X{% endif %}</td>
+                </tr>
+                {% endfor %}
+                <tr>
+                    <td colspan="6"><strong>Reason for Amendment for Old User:</strong> {{ cbs_access_data.amendment_reason|default:"-" }}</td>
+                </tr>
+                {% if cbs_office_type == "branch" %}
+                    <tr>
+                        <td colspan="6" class="p-0">
+                            <div class="cbs-branch-detail-signoff">
+                                <div class="cbs-detail-approval">User Requested By</div>
+                                <div class="cbs-detail-approval">Recommended By</div>
+                                <div class="cbs-detail-approval">Recommended By</div>
+                                <div class="cbs-detail-approval">Approved By</div>
+                                <div class="cbs-detail-signature">{% if cbs_requested_signature_url %}<img src="{{ cbs_requested_signature_url }}" alt="Requested by signature">{% endif %}</div>
+                                <div class="cbs-detail-signature">{% if cbs_recommender_signature_url %}<img src="{{ cbs_recommender_signature_url }}" alt="Recommended by signature">{% elif cbs_recommended_signed %}<span class="cbs-signed-text">Digitally Signed</span>{% endif %}</div>
+                                <div class="cbs-detail-signature">{% if cbs_second_recommender_signature_url %}<img src="{{ cbs_second_recommender_signature_url }}" alt="Second recommended by signature">{% elif cbs_second_recommended_signed %}<span class="cbs-signed-text">Digitally Signed</span>{% endif %}</div>
+                                <div class="cbs-detail-signature">{% if cbs_approver_signature_url %}<img src="{{ cbs_approver_signature_url }}" alt="Approved by signature">{% elif cbs_approved_signed %}<span class="cbs-signed-text">Digitally Signed</span>{% endif %}</div>
+                                <div>Name: {{ cbs_access_data.requested_by_name|default:"-" }}</div>
+                                <div>Name: {{ cbs_access_data.recommended_by_name|default:"-" }}</div>
+                                <div>Name: {{ cbs_access_data.branch_second_recommended_by_name|default:"-" }}</div>
+                                <div>Name: {{ cbs_access_data.approved_by_name|default:"-" }}</div>
+                                <div>Designation: {{ cbs_access_data.requested_by_designation|default:"-" }}</div>
+                                <div>Designation: {{ cbs_access_data.recommended_by_designation|default:"-" }}</div>
+                                <div>Designation: {{ cbs_access_data.branch_second_recommended_by_designation|default:"-" }}</div>
+                                <div>Designation: {{ cbs_access_data.approved_by_designation|default:"-" }}</div>
+                                <div>Date: {{ cbs_access_data.requested_by_date|default:"-" }}</div>
+                                <div>Date: {{ cbs_access_data.recommended_by_date|default:"-" }}</div>
+                                <div>Date: {{ cbs_access_data.branch_second_recommended_by_date|default:"-" }}</div>
+                                <div>Date: {{ cbs_access_data.approved_by_date|default:"-" }}</div>
+                            </div>
+                        </td>
+                    </tr>
+                {% else %}
+                    <tr>
+                        <td colspan="2" class="cbs-detail-approval">User Requested By</td>
+                        <td colspan="2" class="cbs-detail-approval">Recommended By</td>
+                        <td colspan="2" class="cbs-detail-approval">Approved By</td>
+                    </tr>
+                    <tr>
+                        <td colspan="2" class="cbs-detail-signature">{% if cbs_requested_signature_url %}<img src="{{ cbs_requested_signature_url }}" alt="Requested by signature">{% endif %}</td>
+                        <td colspan="2" class="cbs-detail-signature">{% if cbs_recommender_signature_url %}<img src="{{ cbs_recommender_signature_url }}" alt="Recommended by signature">{% elif cbs_recommended_signed %}<span class="cbs-signed-text">Digitally Signed</span>{% endif %}</td>
+                        <td colspan="2" class="cbs-detail-signature">{% if cbs_approver_signature_url %}<img src="{{ cbs_approver_signature_url }}" alt="Approved by signature">{% elif cbs_approved_signed %}<span class="cbs-signed-text">Digitally Signed</span>{% endif %}</td>
+                    </tr>
+                    <tr>
+                        <td colspan="2">Name: {{ cbs_access_data.requested_by_name|default:"-" }}</td>
+                        <td colspan="2">Name: {{ cbs_access_data.recommended_by_name|default:"-" }}</td>
+                        <td colspan="2">Name: {{ cbs_access_data.approved_by_name|default:"-" }}</td>
+                    </tr>
+                    <tr>
+                        <td colspan="2">Designation: {{ cbs_access_data.requested_by_designation|default:"-" }}</td>
+                        <td colspan="2">Designation: {{ cbs_access_data.recommended_by_designation|default:"-" }}</td>
+                        <td colspan="2">Designation: {{ cbs_access_data.approved_by_designation|default:"-" }}</td>
+                    </tr>
+                    <tr>
+                        <td colspan="2">Date: {{ cbs_access_data.requested_by_date|default:"-" }}</td>
+                        <td colspan="2">Date: {{ cbs_access_data.recommended_by_date|default:"-" }}</td>
+                        <td colspan="2">Date: {{ cbs_access_data.approved_by_date|default:"-" }}</td>
+                    </tr>
+                {% endif %}
+                <tr>
+                    <td colspan="6" class="cbs-detail-section">3. ENDORSEMENT BY USER:</td>
+                </tr>
+                <tr>
+                    <td colspan="6">
+                        By signing below I acknowledge that I am the authorized user of the Pumori System and possess the appropriate power to login with aforementioned user id. I will keep my user id and password as equal to my signature. The information provided herein is correct and true in my knowledge.
+                        <br><br>
+                        User Acknowledgement Signature:
+                        {% if cbs_access_user_signature_url %}
+                            <br>
+                            <img src="{{ cbs_access_user_signature_url }}" alt="User acknowledgement signature">
+                        {% endif %}
+                        <br>
+                        Date: {{ cbs_access_data.access_user_signed_at|default:"-" }}
+                    </td>
+                </tr>
+            </table>
+        </div>
+        {% else %}
+        <div class="row g-3">
+            <div class="col-md-6">
+                <div class="ticket-meta">Status</div>
+                <div class="fw-semibold">{{ remote_access_approval.get_status_display }}</div>
+            </div>
+            <div class="col-md-6">
+                <div class="ticket-meta">Requested By</div>
+                <div class="fw-semibold">{{ ticket.created_by }}</div>
+            </div>
+            <div class="col-md-6">
+                <div class="ticket-meta">Recommended By</div>
+                <div class="fw-semibold">{{ remote_access_approval.recommender|default:"Not Required" }}</div>
+            </div>
+            <div class="col-md-6">
+                <div class="ticket-meta">Approved By</div>
+                <div class="fw-semibold">{{ remote_access_approval.approver|default:"-" }}</div>
+            </div>
+            <div class="col-md-6">
+                <div class="ticket-meta">Requested At</div>
+                <div class="fw-semibold">{{ remote_access_approval.requested_at|date:"M d, Y H:i"|default:"-" }}</div>
+            </div>
+            <div class="col-md-6">
+                <div class="ticket-meta">Recommendation Status</div>
+                <div class="fw-semibold">{{ remote_access_approval.recommendation_status_label }}</div>
+            </div>
+            <div class="col-md-6">
+                <div class="ticket-meta">Recommended At</div>
+                <div class="fw-semibold">{{ remote_access_approval.recommended_at|date:"M d, Y H:i"|default:"Pending" }}</div>
+            </div>
+            <div class="col-12">
+                <div class="ticket-meta">Recommendation Note</div>
+                <div class="fw-semibold">{{ remote_access_approval.recommendation_note|default:"-"|linebreaksbr }}</div>
+            </div>
+            <div class="col-md-6">
+                <div class="ticket-meta">Approval Status</div>
+                <div class="fw-semibold">{{ remote_access_approval.approval_status_label }}</div>
+            </div>
+            <div class="col-md-6">
+                <div class="ticket-meta">Approved At</div>
+                <div class="fw-semibold">{{ remote_access_approval.decided_at|date:"M d, Y H:i"|default:"Pending" }}</div>
+            </div>
+            <div class="col-md-6">
+                <div class="ticket-meta">Approved By</div>
+                <div class="fw-semibold">{{ remote_access_approval.decided_by|default:"Pending" }}</div>
+            </div>
+            <div class="col-12">
+                <div class="ticket-meta">Approval Note</div>
+                <div class="fw-semibold">{{ remote_access_approval.decision_note|default:"-"|linebreaksbr }}</div>
+            </div>
+        </div>
+        <hr>
+        <h6 class="fw-bold">Request Details</h6>
+        <p class="mb-0">{{ display_description|linebreaks }}</p>
+        {% endif %}
+
+        {% if can_decide_remote_access_approval %}
+        <hr>
+        <form method="post" action="{% url 'remote_access_approval_update' ticket.id %}">
+            {% csrf_token %}
+            <div class="mb-3">
+                <label class="form-label fw-bold" for="{{ remote_access_approval_form.decision_note.id_for_label }}">{{ remote_access_approval_form.decision_note.label }}</label>
+                {{ remote_access_approval_form.decision_note }}
+                <div class="form-text">This message is sent to the requester. For approved CBS access, include the created CBS User ID here when available.</div>
+                {% for error in remote_access_approval_form.decision_note.errors %}
+                    <div class="text-danger small">{{ error }}</div>
+                {% endfor %}
+                {% for error in remote_access_approval_form.decision.errors %}
+                    <div class="text-danger small">{{ error }}</div>
+                {% endfor %}
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+                {% if remote_access_approval.current_stage == 'recommendation' or remote_access_approval.current_stage == 'second_recommendation' %}
+                <button type="submit" name="decision" value="approved" class="btn btn-success">Recommend {{ approval_request_kind }}</button>
+                <button type="submit" name="decision" value="rejected" class="btn btn-outline-danger">Reject {{ approval_request_kind }}</button>
+                {% else %}
+                <button type="submit" name="decision" value="approved" class="btn btn-success">Approve {{ approval_request_kind }}</button>
+                <button type="submit" name="decision" value="rejected" class="btn btn-outline-danger">Reject {{ approval_request_kind }}</button>
+                {% endif %}
+            </div>
+        </form>
+        {% elif remote_access_approval.status == 'pending_recommendation' %}
+        <hr>
+        <p class="mb-0 text-danger fw-bold">Waiting for {{ remote_access_approval.current_stage_label|lower|default:"recommendation" }} from {{ remote_access_approval.current_reviewer|default:"the selected recommender" }}.</p>
+        {% elif remote_access_approval.status == 'pending_approval' %}
+        <hr>
+        <p class="mb-0 text-danger fw-bold">Waiting for approval from {{ remote_access_approval.approver|default:"the selected approver" }}.</p>
+        {% endif %}
+
+        {% if approval_request_kind == "CBS Access" and remote_access_approval.status == 'approved' %}
+        <hr>
+        {% if can_requester_assign_cbs_access %}
+        <h6 class="fw-bold">Assign Approved CBS Access</h6>
+        <form method="post" action="{% url 'cbs_access_request_assign_after_approval' ticket.id %}" class="mb-3">
+            {% csrf_token %}
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label class="form-label fw-bold" for="id_cbs_assigned_to">Concerned User</label>
+                    <select name="cbs_assigned_to" id="id_cbs_assigned_to" class="form-select" required>
+                        <option value="">Select user</option>
+                        {% for assign_user in cbs_assignment_users %}
+                            <option value="{{ assign_user.id }}" {% if ticket.assigned_to_id == assign_user.id %}selected{% endif %}>
+                                {{ assign_user.get_full_name|default:assign_user.username }}{% if assign_user.email %} - {{ assign_user.email }}{% endif %}
+                            </option>
+                        {% endfor %}
+                    </select>
+                    <div class="form-text">The selected user will receive an assignment email with the signed CBS document attached.</div>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label fw-bold" for="id_cbs_department">Concerned Department</label>
+                    <select name="cbs_department" id="id_cbs_department" class="form-select">
+                        <option value="">Keep current department</option>
+                        {% for department_name in cbs_assignment_departments %}
+                            <option value="{{ department_name }}" {% if ticket.department == department_name %}selected{% endif %}>{{ department_name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-12">
+                    <label class="form-label fw-bold" for="id_cbs_cc_users">CC Users</label>
+                    <select name="cbs_cc_users" id="id_cbs_cc_users" class="form-select" multiple size="5">
+                        {% for cc_user in cbs_assignment_cc_users %}
+                            <option value="{{ cc_user.id }}">
+                                {{ cc_user.get_full_name|default:cc_user.username }}{% if cc_user.email %} - {{ cc_user.email }}{% endif %}
+                            </option>
+                        {% endfor %}
+                    </select>
+                    <div class="form-text">Optional. Selected users will be copied on the assignment email with the signed CBS document attached.</div>
+                </div>
+                <div class="col-12">
+                    <label class="form-label fw-bold" for="id_cbs_cc_emails">CC Emails</label>
+                    <textarea
+                        name="cbs_cc_emails"
+                        id="id_cbs_cc_emails"
+                        class="form-control"
+                        rows="2"
+                        placeholder="user@bestfinance.com.np, branch@bestfinance.com.np"
+                    ></textarea>
+                    <div class="form-text">Optional. Enter multiple email addresses separated by comma, semicolon, or new line.</div>
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary mt-3">Assign &amp; Email Signed Document</button>
+        </form>
+        {% endif %}
+        {% if not can_requester_assign_cbs_access %}
+        <hr>
+        <h6 class="fw-bold">Send Approved CBS Document</h6>
+        <form method="post" action="{% url 'cbs_access_request_send_document' ticket.id %}">
+            {% csrf_token %}
+            <div class="mb-3">
+                <label class="form-label fw-bold" for="id_document_recipient_emails">Send To</label>
+                <textarea
+                    name="document_recipient_emails"
+                    id="id_document_recipient_emails"
+                    class="form-control"
+                    rows="2"
+                    placeholder="user@bestfinance.com.np, branch@bestfinance.com.np"
+                ></textarea>
+                <div class="form-text">Enter one or more email addresses separated by comma, semicolon, or new line.</div>
+            </div>
+            <div class="mb-3">
+                <label class="form-label fw-bold" for="id_document_message">Message (optional)</label>
+                <textarea
+                    name="document_message"
+                    id="id_document_message"
+                    class="form-control"
+                    rows="3"
+                    placeholder="Optional note, CBS User ID, or instructions for the recipient."
+                ></textarea>
+            </div>
+            <button type="submit" class="btn btn-primary">Send Approved Document</button>
+        </form>
+        {% endif %}
+        {% endif %}
+    </div>
+</div>
+{% endif %}
 
 {% if ticket.image %}
 <div class="card surface border-0 mb-3">
@@ -180,6 +709,7 @@
 </div>
 
 {% if can_manage_chat_privacy %}
+{% if show_assignment_history %}
 <div class="card surface border-0 mt-4">
     <div class="card-header bg-white border-0">
         <h5 class="mb-0 fw-bold">Chat Privacy</h5>
@@ -231,6 +761,7 @@
                     <tr>
                         <th>Assigned To</th>
                         <th>Assigned By</th>
+                        <th>Status</th>
                         <th>Assigned At</th>
                         <th>Unassigned At</th>
                         <th>Duration</th>
@@ -241,13 +772,24 @@
                         <tr>
                             <td>{{ log.assigned_to|default:"-" }}</td>
                             <td>{{ log.assigned_by|default:"-" }}</td>
+                            <td>{{ log.history_status_display|default:"-" }}</td>
                             <td>{{ log.assigned_at|date:"M d, Y H:i"|default:"-" }}</td>
-                            <td>{{ log.unassigned_at|date:"M d, Y H:i"|default:"Current" }}</td>
+                            <td>
+                                {% if log.unassigned_at %}
+                                    {{ log.unassigned_at|date:"M d, Y H:i" }}
+                                {% elif ticket.resolved_at %}
+                                    {{ ticket.resolved_at|date:"M d, Y H:i" }}
+                                {% elif ticket.closed_at %}
+                                    {{ ticket.closed_at|date:"M d, Y H:i" }}
+                                {% else %}
+                                    Current
+                                {% endif %}
+                            </td>
                             <td>{{ log.formatted_duration|default:"-" }}</td>
                         </tr>
                     {% empty %}
                         <tr>
-                            <td colspan="5" class="text-center text-muted py-3">No assignment history yet.</td>
+                            <td colspan="6" class="text-center text-muted py-3">No assignment history yet.</td>
                         </tr>
                     {% endfor %}
                 </tbody>
@@ -255,15 +797,16 @@
         </div>
     </div>
 </div>
+{% endif %}
 
-<div class="card surface border-0 mt-4">
+<div id="ticket-chat" class="card surface border-0 mt-4">
     <div class="card-header bg-white border-0">
         <h5 class="mb-0 fw-bold">Ticket Chat</h5>
     </div>
     <div class="card-body">
         {% if not can_view_chat %}
             <div class="text-muted">
-                This ticket chat is private. Only the requester and the assigned user can view messages, attachments, and audio call controls.
+                {{ chat_unavailable_message }}
             </div>
         {% else %}
         <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
@@ -340,8 +883,13 @@
         const currentUsername = "{{ user.username|escapejs }}";
         const currentUserId = Number("{{ user.id }}") || 0;
         const chatLocked = {% if chat_locked %}true{% else %}false{% endif %};
+        const searchParams = new URLSearchParams(window.location.search);
+        const autoCallMode = searchParams.get("callmode") || "";
+        const autoCallRequested = searchParams.get("autocall") === "1" || autoCallMode === "start" || autoCallMode === "answer";
+        const shouldFocusChat = autoCallRequested || window.location.hash === "#ticket-chat";
         const iceServers = JSON.parse("{{ webrtc_ice_servers_json|escapejs }}");
         const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+        const chatSection = document.getElementById("ticket-chat");
         const chatLog = document.getElementById("chat-log");
         const input = document.getElementById("chat-message-input");
         const submit = document.getElementById("chat-message-submit");
@@ -357,6 +905,9 @@
         const remoteAudio = document.getElementById("call-remote-audio");
         const localAudio = document.getElementById("call-local-audio");
         let markSeenRequest = null;
+        let autoCallTriggered = false;
+        let autoCallPending = false;
+        let incomingAnswerPending = autoCallMode === "answer";
 
         if (!chatLog || !input || !submit || !fileInput || !fileSubmit || !callStart || !callHangup || !callStatus || !remoteAudio || !localAudio) {
             return;
@@ -448,6 +999,34 @@
                 level: "info",
                 delay: 4000,
             });
+        }
+
+        function focusChatPanel() {
+            if (chatSection) {
+                try {
+                    chatSection.scrollIntoView({ behavior: "smooth", block: "start" });
+                } catch (e) {
+                    chatSection.scrollIntoView();
+                }
+            }
+            if (!input.disabled) {
+                window.setTimeout(function () {
+                    try {
+                        input.focus({ preventScroll: true });
+                    } catch (e) {
+                        input.focus();
+                    }
+                }, 120);
+            }
+        }
+
+        function clearAutoCallQueryFlag() {
+            if (!autoCallRequested || typeof window.history.replaceState !== "function") {
+                return;
+            }
+            const nextUrl = new URL(window.location.href);
+            nextUrl.searchParams.delete("autocall");
+            window.history.replaceState({}, document.title, `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
         }
 
         function markChatSeen() {
@@ -560,6 +1139,9 @@
             }
         });
         markChatSeen();
+        if (shouldFocusChat) {
+            window.setTimeout(focusChatPanel, 60);
+        }
 
         async function uploadFile() {
             if (chatLocked || fileSubmit.disabled) return;
@@ -659,6 +1241,7 @@
         let incoming = false;
         let lastPeerSender = null;
         let pendingOffer = null;
+        let preferredCallerSender = null;
         let ignoreIncomingUntil = 0;
         let ignoreIncomingSender = null;
         const callStartDefaultText = callStart.textContent;
@@ -719,6 +1302,18 @@
             return pc;
         }
 
+        function sendReadySignal() {
+            if (callSocket.readyState !== WebSocket.OPEN) {
+                return false;
+            }
+            try {
+                callSocket.send(JSON.stringify({ type: "ready" }));
+                return true;
+            } catch (e) {
+                return false;
+            }
+        }
+
         async function startCall() {
             if (chatLocked || callStart.disabled) return;
             if (!window.isSecureContext) {
@@ -727,8 +1322,10 @@
             }
 
             callStart.disabled = true;
+            let isIncomingAnswer = false;
             try {
-                const isIncomingAnswer = incoming;
+                isIncomingAnswer = incoming || incomingAnswerPending;
+                incomingAnswerPending = false;
                 setIncomingState(false);
                 const stream = await ensureLocalAudio();
                 const conn = ensurePeerConnection();
@@ -739,9 +1336,12 @@
                 callHangup.disabled = false;
                 setCallStatus("waiting for peer...");
                 if (!isIncomingAnswer) {
+                    preferredCallerSender = mySender || preferredCallerSender;
                     callSocket.send(JSON.stringify({ type: "ring" }));
+                } else if (!preferredCallerSender && lastPeerSender) {
+                    preferredCallerSender = lastPeerSender;
                 }
-                callSocket.send(JSON.stringify({ type: "ready" }));
+                sendReadySignal();
                 if (lastPeerSender) {
                     await maybeMakeOffer(lastPeerSender);
                 }
@@ -756,6 +1356,11 @@
                     setCallStatus("connecting...");
                 }
             } catch (e) {
+                if (isIncomingAnswer) {
+                    incomingAnswerPending = true;
+                }
+                autoCallPending = false;
+                autoCallTriggered = false;
                 callStart.disabled = false;
                 alert("Could not access microphone. Check browser permission.");
             }
@@ -766,10 +1371,14 @@
             const peerSender = lastPeerSender;
             const wasIncoming = incoming;
 
+            autoCallPending = false;
+            autoCallTriggered = false;
+            incomingAnswerPending = false;
             negotiated = false;
             localReady = false;
             lastPeerSender = null;
             pendingOffer = null;
+            preferredCallerSender = null;
             setCallStatus("idle");
             setIncomingState(false);
             callStart.disabled = false;
@@ -800,8 +1409,14 @@
             if (!mySender || !remoteSender) return;
             if (mySender === remoteSender) return;
 
-            // Deterministic "caller": lower sender id makes the offer.
-            if (String(mySender) > String(remoteSender)) return;
+            if (preferredCallerSender) {
+                if (String(mySender) !== String(preferredCallerSender)) {
+                    return;
+                }
+            } else if (String(mySender) > String(remoteSender)) {
+                // Deterministic fallback when nobody explicitly initiated the ring flow.
+                return;
+            }
 
             const conn = ensurePeerConnection();
             const offer = await conn.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: false });
@@ -813,6 +1428,65 @@
 
         callStart.addEventListener("click", startCall);
         callHangup.addEventListener("click", () => stopCall(true));
+
+        function queueAutoCallStart(options) {
+            if (options && options.incomingAnswer) {
+                incomingAnswerPending = true;
+            }
+            if (chatLocked || autoCallPending || autoCallTriggered || callStart.disabled) {
+                return false;
+            }
+            autoCallPending = true;
+
+            const runAutoCall = function () {
+                if (!autoCallPending) {
+                    return;
+                }
+                if (chatLocked || callStart.disabled) {
+                    autoCallPending = false;
+                    autoCallTriggered = false;
+                    return;
+                }
+                autoCallPending = false;
+                autoCallTriggered = true;
+                clearAutoCallQueryFlag();
+                window.setTimeout(function () {
+                    startCall();
+                }, 150);
+            };
+
+            if (callSocket.readyState === WebSocket.OPEN) {
+                runAutoCall();
+                return true;
+            }
+            if (callSocket.readyState !== WebSocket.CONNECTING) {
+                autoCallPending = false;
+                return false;
+            }
+
+            callSocket.addEventListener("open", runAutoCall, { once: true });
+            return true;
+        }
+
+        window.supportDeskAnswerTicketCall = function (requestedTicketId) {
+            if (String(requestedTicketId || "") !== String(ticketId)) {
+                return false;
+            }
+            focusChatPanel();
+            if (chatLocked) {
+                setCallStatus("unavailable");
+                showChatToast("Chat unavailable", "Audio call is unavailable for this ticket.");
+                return true;
+            }
+            if (autoCallPending || autoCallTriggered) {
+                incomingAnswerPending = true;
+                return true;
+            }
+            if (localReady || callStart.disabled) {
+                return true;
+            }
+            return queueAutoCallStart({ incomingAnswer: true });
+        };
 
         callSocket.onmessage = async (event) => {
             const data = JSON.parse(event.data);
@@ -850,7 +1524,23 @@
 
             if (ev === "joined") {
                 if (sender) lastPeerSender = sender;
-                if (localReady) await maybeMakeOffer(sender);
+                if (localReady) {
+                    sendReadySignal();
+                    await maybeMakeOffer(sender);
+                }
+                return;
+            }
+            if (ev === "ring") {
+                if (sender) {
+                    lastPeerSender = sender;
+                    if (!preferredCallerSender) {
+                        preferredCallerSender = sender;
+                    }
+                }
+                if (!localReady) {
+                    setIncomingState(true);
+                    setCallStatus("incoming call - click Start Audio Call");
+                }
                 return;
             }
             if (ev === "left" || ev === "hangup") {
@@ -859,6 +1549,9 @@
             }
             if (ev === "ready") {
                 if (sender) lastPeerSender = sender;
+                if (!preferredCallerSender && sender) {
+                    preferredCallerSender = sender;
+                }
                 if (!localReady) {
                     setIncomingState(true);
                     setCallStatus("incoming call - click Start Audio Call");
@@ -867,7 +1560,10 @@
                 return;
             }
             if (ev === "offer") {
-                if (sender) lastPeerSender = sender;
+                if (sender) {
+                    lastPeerSender = sender;
+                    preferredCallerSender = sender;
+                }
                 if (!localReady) {
                     // If you receive an offer first, you still need to Start to grant mic permission.
                     setCallStatus("incoming call - click Start Audio Call");
@@ -903,6 +1599,10 @@
         };
 
         callSocket.onclose = function (event) {
+            autoCallPending = false;
+            if (!localReady) {
+                autoCallTriggered = false;
+            }
             if (event.code === 4001) {
                 setCallStatus("disconnected (login expired)");
             } else if (event.code === 4003) {
@@ -911,6 +1611,15 @@
                 setCallStatus("disconnected");
             }
         };
+
+        function scheduleAutoCallFromDashboard() {
+            if (!autoCallRequested || chatLocked) {
+                return;
+            }
+            queueAutoCallStart();
+        }
+
+        scheduleAutoCallFromDashboard();
     })();
 </script>
 {% endblock %}

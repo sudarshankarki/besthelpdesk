@@ -1,0 +1,584 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Incident Report{% endblock %}
+
+{% block content %}
+<style>
+    .incident-letterhead {
+        display: grid;
+        grid-template-columns: minmax(220px, 360px) 1fr auto;
+        gap: 1.25rem;
+        align-items: center;
+        padding: 1.4rem 1.5rem;
+        border: 1px solid #d8e4dc;
+        border-radius: 22px;
+        background:
+            linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(244, 250, 247, 0.96)),
+            #ffffff;
+        box-shadow: 0 18px 35px rgba(11, 54, 42, 0.08);
+    }
+
+    .incident-letterhead-logo {
+        width: min(100%, 320px);
+        height: auto;
+        display: block;
+    }
+
+    .incident-letterhead-kicker {
+        font-size: 0.8rem;
+        font-weight: 800;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: #1f7f68;
+    }
+
+    .incident-letterhead-title {
+        margin: 0.35rem 0 0;
+        font-size: clamp(2rem, 3vw, 3.1rem);
+        font-weight: 900;
+        color: #103b30;
+        text-align: center;
+        text-transform: uppercase;
+    }
+
+    .incident-letterhead-note {
+        margin-top: 0.45rem;
+        color: #5e7569;
+        font-size: 0.98rem;
+    }
+
+    .incident-letterhead-meta {
+        justify-self: end;
+        text-align: right;
+        display: grid;
+        gap: 0.35rem;
+        color: #245546;
+        font-size: 0.92rem;
+        font-weight: 700;
+    }
+
+    .incident-print-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.65rem;
+        margin-top: 1rem;
+    }
+
+    .incident-selected-user {
+        border: 1px solid #d8e4dc;
+        border-radius: 8px;
+        background: #f6fbf8;
+        color: #245546;
+        font-weight: 700;
+        padding: 0.65rem 0.75rem;
+    }
+
+    .bfc-incident-template {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+        border: 1px solid #556965;
+        background: #fff;
+        color: #111;
+    }
+
+    .bfc-incident-template th,
+    .bfc-incident-template td {
+        border: 1px solid #9a9a9a;
+        padding: 0.45rem 0.55rem;
+        vertical-align: top;
+    }
+
+    .bfc-template-title {
+        text-align: center;
+        font-size: 1.35rem;
+        font-weight: 800;
+    }
+
+    .bfc-company-title {
+        text-align: center;
+        font-size: 1rem;
+        font-weight: 700;
+    }
+
+    .bfc-section-row {
+        background: #f1f1f1;
+        font-weight: 800;
+        text-transform: uppercase;
+    }
+
+    .bfc-label {
+        font-weight: 700;
+        white-space: nowrap;
+    }
+
+    .bfc-incident-template .form-control,
+    .bfc-incident-template .form-select {
+        border: 0;
+        border-radius: 0;
+        padding: 0.2rem 0;
+        background: transparent;
+        box-shadow: none;
+    }
+
+    .bfc-incident-template textarea.form-control {
+        min-height: 72px;
+        resize: vertical;
+    }
+
+    .bfc-severity-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(90px, 1fr));
+        gap: 0.5rem;
+        align-items: center;
+    }
+
+    @media (max-width: 768px) {
+        .bfc-incident-template {
+            min-width: 760px;
+        }
+    }
+
+    @media (max-width: 992px) {
+        .incident-letterhead {
+            grid-template-columns: 1fr;
+        }
+
+        .incident-letterhead-meta {
+            justify-self: start;
+            text-align: left;
+        }
+    }
+
+    @media print {
+        body {
+            background: #ffffff !important;
+        }
+
+        .app-sidebar,
+        .app-header,
+        .sidebar-toggle,
+        .incident-print-actions,
+        .btn {
+            display: none !important;
+        }
+
+        .app-shell,
+        .app-main {
+            display: block !important;
+            padding: 0 !important;
+            min-height: auto !important;
+        }
+
+        .surface,
+        .incident-letterhead {
+            box-shadow: none !important;
+            border-color: #d7e2dc !important;
+            break-inside: avoid;
+        }
+
+        form {
+            margin: 0;
+        }
+    }
+</style>
+<div class="mb-3">
+    <div class="incident-letterhead">
+        <div>
+            <img src="{% static 'images/logo.png' %}" alt="Best Finance Company Ltd." class="incident-letterhead-logo">
+        </div>
+        <div>
+            <div class="incident-letterhead-kicker">Best Finance Company Ltd.</div>
+            <h2 class="incident-letterhead-title">Incident Report Template</h2>
+            <div class="incident-letterhead-note">Fill the template directly on this page, then download it as a PDF for circulation.</div>
+            <div class="incident-print-actions">
+                {% if can_download_incident_report %}
+                <a href="{% url 'ticket_incident_report_download' ticket.id %}?format=pdf" class="btn btn-primary">Download PDF</a>
+                <a href="{% url 'ticket_incident_report_download' ticket.id %}?format=docx" class="btn btn-primary">Download Word</a>
+                {% endif %}
+                <a href="{% url 'ticket_detail' ticket.id %}" class="btn btn-sm btn-outline-secondary">View Ticket</a>
+            </div>
+        </div>
+        <div class="incident-letterhead-meta">
+            <div>Version 1.0</div>
+            <div>Internal Incident Management</div>
+            <div>{{ ticket.ticket_id }}</div>
+        </div>
+    </div>
+</div>
+
+{% if not form %}
+<div class="surface p-3">
+    <div class="text-muted">No incident report has been created for this ticket yet.</div>
+</div>
+{% else %}
+<form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+
+    {% if form.non_field_errors %}
+    <div class="alert alert-danger">
+        {% for error in form.non_field_errors %}
+            <div>{{ error }}</div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% if incident_report_locked %}
+    <div class="alert alert-success">
+        This incident report has already been submitted. It is locked for editing, and the linked ticket can now be resolved or closed through the ticket workflow.
+    </div>
+    {% endif %}
+    {% if incident_report and incident_report.correction_requested_at %}
+    <div class="alert alert-warning">
+        <div class="fw-bold">Correction requested</div>
+        <div>
+            {% if incident_report.correction_requested_by %}
+                By {{ incident_report.correction_requested_by }}
+            {% endif %}
+            on {{ incident_report.correction_requested_at|date:"M d, Y H:i" }}
+        </div>
+        {% if incident_report.correction_note %}
+            <div class="mt-2">{{ incident_report.correction_note|linebreaksbr }}</div>
+        {% endif %}
+    </div>
+    {% endif %}
+    {% if form.errors or has_notified_signoff_errors %}
+    <div class="alert alert-danger">
+        {% for field in form %}
+            {% for error in field.errors %}
+                <div>{{ field.label }}: {{ error }}</div>
+            {% endfor %}
+        {% endfor %}
+        {% if notified_signoff_formset %}
+            {% for error in notified_signoff_formset.non_form_errors %}
+                <div>{{ error }}</div>
+            {% endfor %}
+            {% for signoff_form in notified_signoff_formset %}
+                {% for field in signoff_form %}
+                    {% for error in field.errors %}
+                        <div>{{ field.label }}: {{ error }}</div>
+                    {% endfor %}
+                {% endfor %}
+            {% endfor %}
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="surface p-3 mb-3">
+        <div class="table-responsive">
+            <table class="bfc-incident-template">
+                <colgroup>
+                    <col style="width: 24%;">
+                    <col style="width: 26%;">
+                    <col style="width: 24%;">
+                    <col style="width: 26%;">
+                </colgroup>
+                <tr><td colspan="4" class="bfc-template-title">Incident Report Template</td></tr>
+                <tr><td colspan="4" class="bfc-company-title">Best Finance Company Ltd.</td></tr>
+                <tr>
+                    <td class="bfc-label">Version</td>
+                    <td>1.0</td>
+                    <td class="bfc-label">Date</td>
+                    <td>&nbsp;</td>
+                </tr>
+                <tr><td colspan="4" class="bfc-section-row">INCIDENT REPORT INFORMATION</td></tr>
+                <tr><td colspan="4" class="bfc-section-row">BREACH REPORTING EMPLOYEE'S INFORMATION</td></tr>
+                <tr>
+                    <td class="bfc-label">Reporting Employee's Name:</td>
+                    <td>{{ form.reporting_employee_name }}</td>
+                    <td class="bfc-label">Designation:</td>
+                    <td>{{ form.reporting_employee_designation }}</td>
+                </tr>
+                <tr>
+                    <td class="bfc-label">Email:</td>
+                    <td>{{ form.reporting_employee_email }}</td>
+                    <td class="bfc-label">Contact Number:</td>
+                    <td>{{ form.reporting_employee_contact }}</td>
+                </tr>
+                <tr><td class="bfc-label">Date of Report:</td><td colspan="3">{{ form.date_of_report }}</td></tr>
+                <tr><td colspan="4" class="bfc-section-row">INCIDENT DETAILS</td></tr>
+                <tr>
+                    <td class="bfc-label">Incident ID:</td>
+                    <td>{{ form.incident_id }}</td>
+                    <td class="bfc-label">Date &amp; Time of Occurrence:</td>
+                    <td>{{ form.date_time_of_occurrence }}</td>
+                </tr>
+                <tr>
+                    <td class="bfc-label">Date &amp; Time of Detection:</td>
+                    <td>{{ form.date_time_of_detection }}</td>
+                    <td class="bfc-label">Source of Incident:</td>
+                    <td>{{ form.source_of_incident }}</td>
+                </tr>
+                <tr><td class="bfc-label">Incident Location (IP):</td><td colspan="3">{{ form.incident_location_ip }}</td></tr>
+                <tr><td class="bfc-label">Incident Description:</td><td colspan="3">{{ form.incident_description }}</td></tr>
+                <tr><td colspan="4" class="bfc-section-row">IMPACT ASSESSMENT</td></tr>
+                <tr><td class="bfc-label">Unit or Department Impacted:</td><td colspan="3">{{ form.unit_or_department_impacted }}</td></tr>
+                <tr><td class="bfc-label">System(s) Impacted:</td><td colspan="3">{{ form.systems_impacted }}</td></tr>
+                <tr><td class="bfc-label">Network Impacted:</td><td colspan="3">{{ form.network_impacted }}</td></tr>
+                <tr><td class="bfc-label">Operations Impacted:</td><td colspan="3">{{ form.operations_impacted }}</td></tr>
+                <tr>
+                    <td class="bfc-label">Incident Severity:</td>
+                    <td colspan="3">
+                        {{ form.severity_choice }}
+                        <div class="bfc-severity-grid small mt-2">
+                            <span>Critical</span><span>High</span><span>Medium</span><span>Low</span>
+                        </div>
+                    </td>
+                </tr>
+                <tr><td colspan="4" class="bfc-section-row">INCIDENT RECOVERY DETAILS</td></tr>
+                <tr><td class="bfc-label">Recovery Actions:</td><td colspan="3">{{ form.recovery_actions }}</td></tr>
+                <tr><td class="bfc-label">Recovery Timeframe:</td><td colspan="3">{{ form.recovery_timeframe }}</td></tr>
+                <tr><td class="bfc-label">Post Recovery Verification:</td><td colspan="3">{{ form.post_recovery_verification }}</td></tr>
+                <tr><td class="bfc-label">Communication:</td><td colspan="3">{{ form.recovery_communication }}</td></tr>
+                <tr><td colspan="4" class="bfc-section-row">INCIDENT RESPONSE DETAILS</td></tr>
+                <tr><td class="bfc-label">Quarantine Process:</td><td colspan="3">{{ form.quarantine_process }}</td></tr>
+                <tr><td class="bfc-label">Immediate Actions:</td><td colspan="3">{{ form.immediate_actions }}</td></tr>
+                <tr><td class="bfc-label">Root Cause Analysis:</td><td colspan="3">{{ form.root_cause_analysis }}</td></tr>
+                <tr><td class="bfc-label">Eradication:</td><td colspan="3">{{ form.eradication_method }}</td></tr>
+                <tr><td class="bfc-label">Lessons Learned:</td><td colspan="3">{{ form.lessons_learned }}</td></tr>
+                <tr><td class="bfc-label">Recommendations for Improvement:</td><td colspan="3">{{ form.recommendations_for_improvement }}</td></tr>
+                <tr><td class="bfc-label">Action Plan:</td><td colspan="3">{{ form.action_plan }}</td></tr>
+                <tr><td colspan="4" class="bfc-section-row">INCIDENT INFORMATION SHARING</td></tr>
+                <tr><td class="bfc-label">Unit or Department Requiring Notification:</td><td colspan="3">{{ form.unit_or_department_requiring_notification }}</td></tr>
+                <tr><td class="bfc-label">Point of Contact:</td><td colspan="3">{{ form.point_of_contact }}</td></tr>
+                <tr><td class="bfc-label">Date of Notification:</td><td colspan="3">{{ form.date_of_notification }}</td></tr>
+                <tr><td colspan="4" class="bfc-section-row">ATTACHMENTS (IF APPLICABLE)</td></tr>
+                <tr><td colspan="4">{{ form.evidence_attachments }}</td></tr>
+            </table>
+        </div>
+        <div class="border rounded p-3 bg-light-subtle mt-3">
+            <div class="fw-bold mb-2">Evidence File Uploads</div>
+            {% if can_manage_incident_report %}
+                <input type="file" name="evidence_files" id="incident-evidence-files" class="form-control" multiple>
+                <div class="form-text mt-2">You can upload up to {{ incident_attachment_max_files }} files at once. Maximum size per file: {{ incident_attachment_max_bytes|filesizeformat }}.</div>
+            {% endif %}
+            {% if incident_attachments %}
+                <div class="mt-3 d-grid gap-2">
+                    {% for attachment in incident_attachments %}
+                        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 border rounded p-2 bg-white">
+                            <a href="{% url 'ticket_incident_report_attachment_download' ticket.id attachment.id %}" class="text-decoration-none">{{ attachment.filename }}</a>
+                            <div class="small text-muted">{{ attachment.size|filesizeformat }}</div>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="surface p-3 mb-3" id="incident-sign-off">
+        <h5 class="fw-bold mb-3">9. Sign-Off</h5>
+        <div class="row g-3">
+            <div class="col-12">
+                <div class="small text-muted">
+                    Save keeps this as a draft. Submit emails the attached incident response Word document to the selected reviewers, approver, and any CC recipients. Download PDF converts the same signed Word-template layout to PDF.
+                </div>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label fw-bold" for="{{ form.registered_user.id_for_label }}">{{ form.registered_user.label }}</label>
+                {{ form.registered_user }}
+                <div class="form-text">{{ form.registered_user.help_text }}</div>
+            </div>
+            <div class="col-md-6">
+                <div class="fw-bold">Incident Registered By Digital Signature</div>
+                <div class="form-text">Signature is taken only from the selected user's admin-uploaded profile signature.</div>
+                {% if incident_report and incident_report.registered_signature %}
+                <div class="small text-success mt-2">Signature saved.</div>
+                {% else %}
+                <div class="small text-muted mt-2">Pending profile signature.</div>
+                {% endif %}
+                {% if can_sign_registered %}
+                <div class="mt-2">
+                    <button type="submit" formaction="{% url 'ticket_incident_report_sign' ticket.id 'registered' %}" formmethod="post" class="btn btn-outline-success btn-sm">Sign Registered Section</button>
+                </div>
+                {% endif %}
+            </div>
+            <div class="col-12">
+                <label class="form-label fw-bold" for="{{ form.cc_recipients.id_for_label }}">{{ form.cc_recipients.label }}</label>
+                <div class="form-text mb-2">{{ form.cc_recipients.help_text }}</div>
+                <div style="max-height: 250px; overflow-y: auto;">
+                    {{ form.cc_recipients }}
+                </div>
+            </div>
+            <div class="col-12">
+                <label class="form-label fw-bold">Notified Sign-Off Chain</label>
+                <div class="form-text mb-3">Choose how many reviewer/acknowledgement levels this report needs. The final selected order is shown as Acknowledged By; earlier orders are shown as Reviewed By.</div>
+                <div class="row g-2 align-items-end mb-3">
+                    <div class="col-sm-4 col-md-3">
+                        <label class="form-label small fw-semibold" for="incident-signoff-level-count">Sign-off levels</label>
+                        <select class="form-select" id="incident-signoff-level-count" name="incident_signoff_level_count">
+                            {% for option in incident_signoff_level_count_options %}
+                            <option value="{{ option }}" {% if option == incident_signoff_level_count %}selected{% endif %}>{{ option }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                {% if notified_signoff_formset %}
+                <div class="table-responsive">
+                    <table class="table table-bordered table-sm">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Order</th>
+                                <th>User</th>
+                                <th style="width: 50px;">Delete</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for signoff_form in notified_signoff_formset %}
+                            <tr class="incident-signoff-row">
+                                {% for hidden_field in signoff_form.hidden_fields %}
+                                    {{ hidden_field }}
+                                {% endfor %}
+                                <td>
+                                    {{ signoff_form.level }}
+                                    {% if signoff_form.level.errors %}
+                                    <div class="text-danger small">{{ signoff_form.level.errors.0 }}</div>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {{ signoff_form.user }}
+                                    {% if signoff_form.user.errors %}
+                                    <div class="text-danger small">{{ signoff_form.user.errors.0 }}</div>
+                                    {% endif %}
+                                </td>
+                                <td class="text-center">
+                                    {{ signoff_form.DELETE }}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    {{ notified_signoff_formset.management_form }}
+                </div>
+                {% endif %}
+            </div>
+            {% if incident_report and notified_signoffs %}
+            <div class="col-12">
+                <div class="border rounded p-3 bg-light-subtle">
+                    <div class="fw-bold mb-2">Assigned Review and Approval Signatures</div>
+                    <div class="d-grid gap-2">
+                        {% for signoff in notified_signoffs %}
+                        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 border rounded p-2 bg-white">
+                            <div>
+                                <div class="fw-semibold">{{ signoff.formal_label }}</div>
+                                <div class="small text-muted">Order {{ signoff.level }}</div>
+                                <div class="small text-muted">{{ signoff.display_person }}</div>
+                                {% if signoff.signed_at %}
+                                <div class="small text-success">Signed {{ signoff.signed_at|date:"M d, Y H:i" }}</div>
+                                {% elif signoff.waiting_for_prior_signoff %}
+                                <div class="small text-warning">Waiting for {{ signoff.waiting_for_label }}.</div>
+                                {% else %}
+                                <div class="small text-muted">Pending signature</div>
+                                {% endif %}
+                            </div>
+                            <div class="d-flex flex-wrap gap-2">
+                                {% if signoff.snapshot_signature %}
+                                <span class="small text-success align-self-center">Signature saved</span>
+                                {% endif %}
+                                {% if signoff.id in signable_notified_signoff_ids %}
+                                <button type="submit" formaction="{% url 'ticket_incident_report_signoff_sign' ticket.id signoff.id %}" formmethod="post" class="btn btn-outline-success btn-sm">Sign as {{ signoff.formal_label }}</button>
+                                <div class="d-flex flex-wrap gap-2 align-items-start">
+                                    <textarea name="correction_note" class="form-control form-control-sm" rows="2" placeholder="Correction note" style="min-width: 220px;"></textarea>
+                                    <button type="submit" formaction="{% url 'ticket_incident_report_signoff_reject' ticket.id signoff.id %}" formmethod="post" class="btn btn-outline-danger btn-sm">Request Correction</button>
+                                </div>
+                                {% elif signoff.assigned_to_current_user and signoff.waiting_for_prior_signoff %}
+                                <button type="button" class="btn btn-outline-secondary btn-sm" disabled>Waiting for reviewer</button>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% if signable_notified_signoff_ids and not current_user_has_signature_image %}
+                    <div class="small text-danger mt-2">Your profile signature must be uploaded by an admin before you can sign.</div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if can_manage_incident_report and not incident_report_locked %}
+    <div class="d-flex flex-wrap gap-2">
+        <button type="submit" class="btn btn-primary" name="action" value="save">Save</button>
+        <button
+            type="submit"
+            class="btn btn-success"
+            name="action"
+            value="submit"
+            {% if not incident_report_signature_complete %}disabled title="Complete all required signatures before submitting"{% endif %}
+        >Submit & Send</button>
+        {% if can_download_incident_report %}
+        <a href="{% url 'ticket_incident_report_download' ticket.id %}?format=pdf" class="btn btn-outline-primary">Download PDF</a>
+        <a href="{% url 'ticket_incident_report_download' ticket.id %}?format=docx" class="btn btn-outline-primary">Download Word</a>
+        {% endif %}
+    </div>
+    {% if not incident_report_signature_complete %}
+    <div class="small text-danger mt-2">
+        Complete required signatures before Submit & Send:
+        {{ missing_incident_report_signatures|join:", " }}
+    </div>
+    {% endif %}
+    {% else %}
+    <div class="surface p-3">
+        <div class="text-muted">
+            View-only mode.
+            {% if can_sign_registered or signable_notified_signoff_ids %}
+                You can still apply your own assigned signature from the Sign-Off section above.
+            {% elif incident_report_locked %}
+                This report was already submitted and locked for editing.
+            {% else %}
+                Support users can update this report until it is submitted.
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+</form>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    (function () {
+        const levelCountSelect = document.getElementById("incident-signoff-level-count");
+        const signoffRows = Array.from(document.querySelectorAll(".incident-signoff-row"));
+        function syncSignoffRows() {
+            if (!levelCountSelect || !signoffRows.length) {
+                return;
+            }
+            const selectedCount = Number.parseInt(levelCountSelect.value, 10) || 1;
+            signoffRows.forEach((row, index) => {
+                const levelInput = row.querySelector('input[name$="-level"]');
+                const userSelect = row.querySelector('select[name$="-user"]');
+                const shouldShow = index < selectedCount;
+                row.style.display = shouldShow ? "" : "none";
+                if (shouldShow && levelInput && !levelInput.value) {
+                    levelInput.value = String(index + 1);
+                }
+                if (!shouldShow && levelInput && !userSelect?.value) {
+                    levelInput.value = "";
+                }
+            });
+        }
+        if (levelCountSelect) {
+            levelCountSelect.addEventListener("change", syncSignoffRows);
+            syncSignoffRows();
+        }
+    })();
+
+    (function () {
+        const notifiedSelect = document.getElementById("{{ form.notified_user.id_for_label }}");
+        const notifiedDisplay = document.getElementById("selected-notified-user-display");
+        if (!notifiedSelect || !notifiedDisplay) {
+            return;
+        }
+
+        function syncNotifiedDisplay() {
+            const selectedOption = notifiedSelect.options[notifiedSelect.selectedIndex];
+            const selectedText = selectedOption && selectedOption.value ? selectedOption.textContent.trim() : "Not selected";
+            notifiedDisplay.textContent = `Current Incident Notified User: ${selectedText}`;
+        }
+
+        notifiedSelect.addEventListener("change", syncNotifiedDisplay);
+        syncNotifiedDisplay();
+    })();
+</script>
+{% endblock %}

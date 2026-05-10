@@ -1,12 +1,21 @@
 from django.contrib import admin
 from django.http import HttpResponse
-from django.urls import path
+from django.urls import path, reverse
 from django.utils import timezone
+from django.utils.html import format_html
 import csv
 from io import StringIO
 from datetime import timedelta
 
-from .models import GroupMailboxEmail, TechnicalDocument, Ticket, TicketAssignmentLog, TicketMessage
+from .models import (
+    GroupMailboxEmail,
+    PortalFlashAnnouncement,
+    RemoteAccessApproval,
+    TechnicalDocument,
+    Ticket,
+    TicketAssignmentLog,
+    TicketMessage,
+)
 
 
 @admin.register(GroupMailboxEmail)
@@ -31,7 +40,9 @@ class TicketAdmin(admin.ModelAdmin):
         "status",
         "created_at",
         "resolved_at",
+        "resolved_by",
         "closed_at",
+        "closed_by",
         "time_to_resolve",
     )
     list_filter = ("status", "priority", "request_type", "department", "created_at")
@@ -41,13 +52,17 @@ class TicketAdmin(admin.ModelAdmin):
         "description",
         "created_by__username",
         "assigned_to__username",
+        "resolved_by__username",
+        "closed_by__username",
     )
     readonly_fields = (
         "ticket_id",
         "created_at",
         "updated_at",
         "resolved_at",
+        "resolved_by",
         "closed_at",
+        "closed_by",
         "time_to_resolve",
     )
     actions = ("export_tickets_csv",)
@@ -96,7 +111,7 @@ class TicketAdmin(admin.ModelAdmin):
 
         durations = []
         for ticket in tickets:
-            end_time = ticket.closed_at or ticket.resolved_at
+            end_time = ticket.resolved_at or ticket.closed_at
             if end_time:
                 durations.append(end_time - ticket.created_at)
 
@@ -126,7 +141,7 @@ class TicketAdmin(admin.ModelAdmin):
         )
         for ticket in tickets:
             created_at = timezone.localtime(ticket.created_at) if ticket.created_at else None
-            solved_at = ticket.closed_at or ticket.resolved_at
+            solved_at = ticket.resolved_at or ticket.closed_at
             solved_at_local = timezone.localtime(solved_at) if solved_at else None
             duration = (solved_at - ticket.created_at) if solved_at else None
             writer.writerow(
@@ -173,15 +188,36 @@ class TicketMessageAdmin(admin.ModelAdmin):
 
 @admin.register(TicketAssignmentLog)
 class TicketAssignmentLogAdmin(admin.ModelAdmin):
-    list_display = ("ticket", "assigned_to", "assigned_by", "assigned_at", "unassigned_at")
-    list_filter = ("assigned_at", "unassigned_at")
+    list_display = ("ticket", "assigned_to", "assigned_by", "status", "assigned_at", "unassigned_at")
+    list_filter = ("status", "assigned_at", "unassigned_at")
     search_fields = (
         "ticket__ticket_id",
         "ticket__subject",
+        "status",
         "assigned_to__username",
         "assigned_to__email",
         "assigned_by__username",
         "assigned_by__email",
+    )
+
+
+@admin.register(RemoteAccessApproval)
+class RemoteAccessApprovalAdmin(admin.ModelAdmin):
+    list_display = ("ticket", "recommender", "approver", "status", "requested_at", "recommended_at", "decided_at")
+    list_filter = ("status", "requested_at", "recommended_at", "decided_at")
+    search_fields = (
+        "ticket__ticket_id",
+        "ticket__subject",
+        "recommender__username",
+        "recommender__email",
+        "approver__username",
+        "approver__email",
+        "recommended_by__username",
+        "recommended_by__email",
+        "decided_by__username",
+        "decided_by__email",
+        "recommendation_note",
+        "decision_note",
     )
 
 
@@ -192,10 +228,68 @@ class TechnicalDocumentAdmin(admin.ModelAdmin):
     search_fields = ("title", "filename", "uploaded_by__username", "uploaded_by__email")
     readonly_fields = ("object_key", "filename", "content_type", "size", "uploaded_by", "created_at")
     actions = None
-    filter_horizontal = ("allowed_users",)
+    filter_horizontal = ("allowed_users", "allowed_departments", "allowed_branches")
 
     def has_add_permission(self, request):
         return False
 
     def has_delete_permission(self, request, obj=None):
         return request.user.has_perm("tickets.delete_technicaldocument")
+
+
+@admin.register(PortalFlashAnnouncement)
+class PortalFlashAnnouncementAdmin(admin.ModelAdmin):
+    list_display = (
+        "title",
+        "category",
+        "active_window",
+        "is_active_now",
+        "uploaded_by",
+        "created_at",
+        "image_link",
+    )
+    list_filter = ("category", "starts_at", "ends_at", "created_at")
+    search_fields = ("title", "message", "uploaded_by__username", "uploaded_by__email")
+    readonly_fields = ("uploaded_by", "created_at", "image_preview")
+    ordering = ("-starts_at", "-created_at")
+
+    def active_window(self, obj):
+        starts_at = timezone.localtime(obj.starts_at).strftime("%Y-%m-%d %H:%M")
+        ends_at = timezone.localtime(obj.ends_at).strftime("%Y-%m-%d %H:%M")
+        return f"{starts_at} to {ends_at}"
+
+    active_window.short_description = "Active Window"
+
+    def is_active_now(self, obj):
+        return obj.is_active
+
+    is_active_now.boolean = True
+    is_active_now.short_description = "Active Now"
+
+    def image_link(self, obj):
+        if not obj.pk or not obj.image:
+            return "-"
+        return format_html(
+            '<a href="{}" target="_blank" rel="noopener">Open JPEG</a>',
+            reverse("portal_flash_image_view", args=[obj.pk]),
+        )
+
+    image_link.short_description = "Image"
+
+    def image_preview(self, obj):
+        if not obj.pk or not obj.image:
+            return "-"
+        return format_html(
+            '<img src="{}" alt="{}" style="max-width: 360px; width: 100%; height: auto; border-radius: 12px; border: 1px solid #d8e4dc;">',
+            reverse("portal_flash_image_view", args=[obj.pk]),
+            obj.title or "Portal flash image",
+        )
+
+    image_preview.short_description = "Preview"
+
+    def delete_model(self, request, obj):
+        obj.delete()
+
+    def delete_queryset(self, request, queryset):
+        for obj in queryset:
+            obj.delete()

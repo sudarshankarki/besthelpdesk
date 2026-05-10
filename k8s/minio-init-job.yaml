@@ -1,0 +1,32 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bestsupport-minio-init
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: minio-init
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: minio-init
+          image: minio/mc:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: bestsupport-config
+            - secretRef:
+                name: bestsupport-secrets
+          command:
+            - /bin/sh
+            - -c
+          args:
+            - >
+              until mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"; do
+                echo "waiting for minio..." && sleep 2;
+              done &&
+              mc mb -p "local/$MINIO_BUCKET" || true &&
+              mc anonymous set none "local/$MINIO_BUCKET" || true

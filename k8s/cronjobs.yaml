@@ -1,0 +1,209 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: bestsupport-prune-ticket-messages
+spec:
+  schedule: "45 3 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/component: prune-ticket-messages
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: prune-ticket-messages
+              image: bestsupport-app:latest
+              imagePullPolicy: IfNotPresent
+              command:
+                - /app/entrypoint.sh
+              args:
+                - python
+                - manage.py
+                - prune_ticket_messages
+              envFrom:
+                - configMapRef:
+                    name: bestsupport-config
+                - secretRef:
+                    name: bestsupport-secrets
+              env:
+                - name: RUN_MIGRATIONS
+                  value: "false"
+                - name: RUN_COLLECTSTATIC
+                  value: "false"
+                - name: START_SERVER
+                  value: "false"
+                - name: WAIT_FOR_DB
+                  value: "true"
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: bestsupport-purge-closed-conversations
+spec:
+  schedule: "15 3 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/component: purge-closed-conversations
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: purge-closed-conversations
+              image: bestsupport-app:latest
+              imagePullPolicy: IfNotPresent
+              command:
+                - /app/entrypoint.sh
+              args:
+                - python
+                - manage.py
+                - purge_closed_ticket_conversations
+              envFrom:
+                - configMapRef:
+                    name: bestsupport-config
+                - secretRef:
+                    name: bestsupport-secrets
+              env:
+                - name: RUN_MIGRATIONS
+                  value: "false"
+                - name: RUN_COLLECTSTATIC
+                  value: "false"
+                - name: START_SERVER
+                  value: "false"
+                - name: WAIT_FOR_DB
+                  value: "true"
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: bestsupport-purge-open-conversations
+spec:
+  schedule: "0 3 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/component: purge-open-conversations
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: purge-open-conversations
+              image: bestsupport-app:latest
+              imagePullPolicy: IfNotPresent
+              command:
+                - /app/entrypoint.sh
+              args:
+                - python
+                - manage.py
+                - prune_open_ticket_conversations
+              envFrom:
+                - configMapRef:
+                    name: bestsupport-config
+                - secretRef:
+                    name: bestsupport-secrets
+              env:
+                - name: RUN_MIGRATIONS
+                  value: "false"
+                - name: RUN_COLLECTSTATIC
+                  value: "false"
+                - name: START_SERVER
+                  value: "false"
+                - name: WAIT_FOR_DB
+                  value: "true"
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: bestsupport-auto-close-resolved
+spec:
+  schedule: "30 4 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/component: auto-close-resolved
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: auto-close-resolved
+              image: bestsupport-app:latest
+              imagePullPolicy: IfNotPresent
+              command:
+                - /app/entrypoint.sh
+              args:
+                - python
+                - manage.py
+                - auto_close_resolved_tickets
+              envFrom:
+                - configMapRef:
+                    name: bestsupport-config
+                - secretRef:
+                    name: bestsupport-secrets
+              env:
+                - name: RUN_MIGRATIONS
+                  value: "false"
+                - name: RUN_COLLECTSTATIC
+                  value: "false"
+                - name: START_SERVER
+                  value: "false"
+                - name: WAIT_FOR_DB
+                  value: "true"
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: bestsupport-send-unresolved-reminders
+spec:
+  schedule: "0 9 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/component: send-unresolved-reminders
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: send-unresolved-reminders
+              image: bestsupport-app:latest
+              imagePullPolicy: IfNotPresent
+              command:
+                - /app/entrypoint.sh
+              args:
+                - python
+                - manage.py
+                - send_unresolved_priority_reminders
+              envFrom:
+                - configMapRef:
+                    name: bestsupport-config
+                - secretRef:
+                    name: bestsupport-secrets
+              env:
+                - name: RUN_MIGRATIONS
+                  value: "false"
+                - name: RUN_COLLECTSTATIC
+                  value: "false"
+                - name: START_SERVER
+                  value: "false"
+                - name: WAIT_FOR_DB
+                  value: "true"

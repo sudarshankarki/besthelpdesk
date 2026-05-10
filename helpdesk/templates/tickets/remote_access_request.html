@@ -1,0 +1,102 @@
+{% extends 'base.html' %}
+
+{% block title %}Remote Access Request{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+            <div class="card surface border-0">
+            <div class="card-header bg-white border-0 pt-4 px-4">
+                <h4 class="mb-1 fw-bold">Remote Access Request</h4>
+                <p class="text-muted mb-0">Submit a request for third-party remote access with an optional recommendation step before final approval.</p>
+            </div>
+            <div class="card-body px-4 pb-4">
+                <form method="post" data-prevent-double-submit>
+                    {% csrf_token %}
+                    <input type="hidden" name="submission_token" value="{{ submission_token }}">
+
+                    {% if form.non_field_errors %}
+                        <div class="alert alert-danger py-2">
+                            {% for error in form.non_field_errors %}
+                                <div>{{ error }}</div>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold" for="{{ form.subject.id_for_label }}">{{ form.subject.label }}</label>
+                        {{ form.subject }}
+                        <div class="form-text">This request will be submitted with a fixed subject so support can identify it quickly.</div>
+                        {% for error in form.subject.errors %}
+                            <div class="text-danger small">{{ error }}</div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold" for="{{ form.details.id_for_label }}">{{ form.details.label }}</label>
+                        {{ form.details }}
+                        {% if form.details.help_text %}
+                            <div class="form-text">{{ form.details.help_text }}</div>
+                        {% endif %}
+                        {% for error in form.details.errors %}
+                            <div class="text-danger small">{{ error }}</div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold" for="{{ form.recommender.id_for_label }}">{{ form.recommender.label }}</label>
+                        {{ form.recommender }}
+                        {% if form.recommender.help_text %}
+                            <div class="form-text">{{ form.recommender.help_text }}</div>
+                        {% endif %}
+                        {% for error in form.recommender.errors %}
+                            <div class="text-danger small">{{ error }}</div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold" for="{{ form.approver.id_for_label }}">{{ form.approver.label }}</label>
+                        {{ form.approver }}
+                        {% if form.approver.help_text %}
+                            <div class="form-text">{{ form.approver.help_text }}</div>
+                        {% endif %}
+                        {% for error in form.approver.errors %}
+                            <div class="text-danger small">{{ error }}</div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="d-flex justify-content-end gap-2">
+                        <a href="{% url 'dashboard' %}" class="btn btn-outline-secondary">Cancel</a>
+                        <button type="submit" class="btn btn-primary" data-submitting-text="Submitting...">Submit Request</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    (function () {
+        const formEl = document.querySelector("form[data-prevent-double-submit]");
+        if (!formEl) {
+            return;
+        }
+        formEl.addEventListener("submit", function (event) {
+            if (formEl.dataset.submitting === "true") {
+                event.preventDefault();
+                return;
+            }
+            formEl.dataset.submitting = "true";
+            formEl.querySelectorAll('button[type="submit"]').forEach(function (button) {
+                const nextLabel = button.getAttribute("data-submitting-text");
+                button.disabled = true;
+                if (nextLabel) {
+                    button.textContent = nextLabel;
+                }
+            });
+        });
+    })();
+</script>
+{% endblock %}

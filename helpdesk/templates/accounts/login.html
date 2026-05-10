@@ -52,6 +52,22 @@
             padding: clamp(12px, 2.6vw, 20px);
         }
 
+        .header-note {
+            max-width: 420px;
+            margin-left: auto;
+            margin-right: auto;
+            text-align: center;
+            line-height: 1.45;
+        }
+
+        .centered-field-label {
+            display: block;
+            width: fit-content;
+            margin-left: auto;
+            margin-right: auto;
+            text-align: center;
+        }
+
         .card-body {
             padding: var(--card-pad);
             padding-bottom: 0;
@@ -301,7 +317,20 @@
                 </div>
                 <h4>Support Desk</h4>
                 <p class="mb-0">Access your account</p>
-                <p class="mb-0 small mt-1">No account? <a href="{% url 'signup' %}" class="signup-link">Register</a></p>
+                {% if directory_auth_enabled and local_login_enabled %}
+                    <p class="mb-0 small mt-1 header-note">
+                        Use your computer credentials for your user account to log in to this system, or use a local account if one has been assigned to you.
+                        {% if local_account_self_service_enabled %}
+                            <a href="{% url 'signup' %}" class="signup-link">Register</a>
+                        {% endif %}
+                    </p>
+                {% elif directory_auth_enabled %}
+                    <p class="mb-0 small mt-1 header-note">Use your computer credentials for your user account to log in to this system.</p>
+                {% elif local_account_self_service_enabled %}
+                    <p class="mb-0 small mt-1">No account? <a href="{% url 'signup' %}" class="signup-link">Register</a></p>
+                {% else %}
+                    <p class="mb-0 small mt-1">Use your local account credentials to sign in.</p>
+                {% endif %}
             </div>
             <div class="card-body">
                 {% if messages %}
@@ -323,10 +352,12 @@
                     {% csrf_token %}
 
                     <div class="mb-3">
-                        <label for="id_username" class="form-label">Username or Email</label>
+                        <label for="id_username" class="form-label{% if directory_auth_enabled and not local_login_enabled %} centered-field-label{% endif %}">
+                            {% if directory_auth_enabled and not local_login_enabled %}Your Computer Login Account{% else %}Username or Email{% endif %}
+                        </label>
                         <div class="input-group">
                             <span class="input-group-text"><span class="field-glyph" aria-hidden="true">ID</span></span>
-                            <input type="text" name="username" class="form-control" id="id_username" placeholder="Enter username or email" required autofocus>
+                            <input type="text" name="username" class="form-control" id="id_username" placeholder="{% if directory_auth_enabled and not local_login_enabled %}Enter your computer login account{% else %}Enter username or email{% endif %}" required autofocus>
                         </div>
                     </div>
 
@@ -339,9 +370,11 @@
                                 <span class="password-toggle-label">Show</span>
                             </span>
                         </div>
-                        <div class="form-text text-end">
-                            <a href="{% url 'password_reset' %}" class="text-decoration-none">Forgot password?</a>
-                        </div>
+                        {% if local_account_self_service_enabled %}
+                            <div class="form-text text-end">
+                                <a href="{% url 'password_reset' %}" class="text-decoration-none">Forgot password?</a>
+                            </div>
+                        {% endif %}
                     </div>
 
                     <div class="mb-3 form-check">

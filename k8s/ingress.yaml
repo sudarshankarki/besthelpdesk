@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: bestsupport
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: 20m
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - helpdesk.example.com
+      secretName: bestsupport-tls
+  rules:
+    - host: helpdesk.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: bestsupport-web
+                port:
+                  number: 80

@@ -1,0 +1,92 @@
+<div class="card surface border-0">
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle mb-0">
+            <thead>
+                <tr>
+                    <th>Ticket</th>
+                    <th class="d-none d-lg-table-cell">Assignee</th>
+                    <th>Priority</th>
+                    <th>Status</th>
+                    <th class="d-none d-xl-table-cell">TTR</th>
+                    <th class="table-actions-cell" style="width: 1%; white-space: nowrap;"></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for ticket in tickets %}
+                    <tr data-ticket-id="{{ ticket.id }}" class="{% if ticket.overdue_attention_level %}ticket-overdue-{{ ticket.overdue_attention_level }}{% endif %}">
+                        <td>
+                            <div class="d-flex flex-column">
+                                <div class="d-flex flex-wrap align-items-center gap-2">
+                                    <span class="status-dot status-dot-{{ ticket.display_status_value|default:ticket.status }}" aria-hidden="true"></span>
+                                    <a class="fw-bold text-decoration-none" href="{% url 'ticket_detail' ticket.id %}">
+                                        {{ ticket.subject }}
+                                    </a>
+                                    <span class="badge-soft chip-muted ticket-id">{{ ticket.ticket_id }}</span>
+                                    {% if ticket.overdue_attention_level %}
+                                        <span class="ticket-overdue-badge ticket-overdue-{{ ticket.overdue_attention_level }}">
+                                            {{ ticket.overdue_attention_label }}
+                                        </span>
+                                    {% endif %}
+                                </div>
+                                <div class="ticket-meta mt-1">
+                                    <span>By {{ ticket.created_by.username }}</span>
+                                    <span class="mx-1">•</span>
+                                    <span>{{ ticket.created_at|date:"M d, Y H:i" }}</span>
+                                    {% if ticket.department %}
+                                        <span class="mx-1">•</span>
+                                        <span>{{ ticket.department }}</span>
+                                    {% endif %}
+                                    <span class="d-inline d-lg-none">
+                                        <span class="mx-1">•</span>
+                                        <span>Assigned: {{ ticket.display_assignee|default:"Unassigned" }}</span>
+                                    </span>
+                                    <span class="d-inline d-xl-none">
+                                        <span class="mx-1">•</span>
+                                        <span>TTR: {{ ticket.formatted_ttr }}</span>
+                                    </span>
+                                    <span
+                                        class="mx-1{% if not ticket.has_unread_messages %} d-none{% endif %}"
+                                        data-unread-separator
+                                    >{% if ticket.has_unread_messages %}•{% endif %}</span>
+                                    <span
+                                        class="text-danger fw-semibold{% if not ticket.has_unread_messages %} d-none{% endif %}"
+                                        data-unread-indicator
+                                    >{% if ticket.has_unread_messages %}New message{% endif %}</span>
+                                </div>
+                                <div class="text-muted small mt-1">{{ ticket.description|truncatewords:14 }}</div>
+                            </div>
+                        </td>
+                        <td class="d-none d-lg-table-cell">
+                            {{ ticket.display_assignee|default:"Unassigned" }}
+                        </td>
+                        <td>
+                            {% if ticket.show_priority_badge %}
+                            <span class="badge-soft {% if ticket.priority == 'high' or ticket.priority == 'critical' or ticket.priority == 'urgent' %}chip-danger{% elif ticket.priority == 'medium' %}chip-warning{% else %}chip-primary{% endif %}">
+                                {{ ticket.get_priority_display }}
+                            </span>
+                            {% else %}
+                                <span class="badge-soft chip-muted">Approval</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="badge-soft {{ ticket.display_status_chip_class|default:'chip-muted' }}">
+                                {{ ticket.display_status_label|default:ticket.get_status_display }}
+                            </span>
+                        </td>
+                        <td class="d-none d-xl-table-cell">{{ ticket.formatted_ttr }}</td>
+                        <td class="text-end table-actions-cell" style="width: 1%; white-space: nowrap;">
+                            <div class="table-actions" style="display: inline-flex; justify-content: flex-end; gap: 0.5rem; min-width: 9.5rem;">
+                                <a class="btn btn-sm btn-outline-secondary" style="white-space: nowrap;" href="{% url 'ticket_detail' ticket.id %}">View</a>
+                                {% if ticket.can_support_manage %}
+                                    <a class="btn btn-sm btn-primary" style="white-space: nowrap;" href="{% url 'ticket_update' ticket.id %}">Manage</a>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr><td colspan="6" class="text-center text-muted py-4">{{ empty_message|default:"No tickets found." }}</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>

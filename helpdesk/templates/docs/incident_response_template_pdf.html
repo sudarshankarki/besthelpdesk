@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Incident Report Template</title>
+    <style>
+        .bfc-word-page {
+            background: #fff;
+            color: #111;
+            padding: 1rem;
+            border: 1px solid #d7d7d7;
+            overflow-x: auto;
+        }
+
+        .bfc-incident-doc {
+            width: 100%;
+            min-width: 860px;
+            border-collapse: collapse;
+            table-layout: fixed;
+            border: 2px solid #000;
+            background: #fff;
+            color: #000;
+            font-size: 0.95rem;
+        }
+
+        .bfc-incident-doc td,
+        .bfc-incident-doc th {
+            border: 1px solid #000;
+            padding: 0.4rem 0.5rem;
+            vertical-align: top;
+        }
+
+        .bfc-title {
+            text-align: center;
+            font-size: 1.35rem;
+            font-weight: 800;
+            height: 52px;
+            vertical-align: middle !important;
+        }
+
+        .bfc-company {
+            text-align: center;
+            font-weight: 700;
+            height: 42px;
+            vertical-align: middle !important;
+        }
+
+        .bfc-section {
+            font-weight: 800;
+            text-transform: uppercase;
+            background: #f1f1f1;
+        }
+
+        .bfc-label {
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .bfc-incident-doc .form-control,
+        .bfc-incident-doc .form-select {
+            border: 0;
+            border-radius: 0;
+            padding: 0;
+            min-height: 1.8rem;
+            background: transparent;
+            box-shadow: none;
+        }
+
+        .bfc-incident-doc textarea.form-control {
+            min-height: 4.6rem;
+            resize: vertical;
+        }
+
+        .bfc-severity-table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: center;
+        }
+
+        .bfc-severity-table td {
+            border: 0;
+            padding: 0.2rem;
+            text-align: center;
+        }
+
+        .bfc-severity-table input {
+            width: 1rem;
+            height: 1rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="bfc-word-page">
+        <table class="bfc-incident-doc">
+            <colgroup>
+                <col style="width: 26%;" />
+                <col style="width: 24%;" />
+                <col style="width: 26%;" />
+                <col style="width: 24%;" />
+            </colgroup>
+            <tr>
+                <td colspan="4" class="bfc-title">Incident Report Template</td>
+            </tr>
+            <tr>
+                <td colspan="4" class="bfc-company">Best Finance Company Ltd.</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Version</td>
+                <td>&nbsp;</td>
+                <td class="bfc-label">Date</td>
+                <td>&nbsp;</td>
+            </tr>
+            <tr>
+                <td colspan="4" class="bfc-section">INCIDENT REPORT INFORMATION</td>
+            </tr>
+            <tr>
+                <td colspan="4" class="bfc-section">BREACH REPORTING EMPLOYEE’S INFORMATION</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Reporting Employee’s Name:</td>
+                <td>{{ data.reporting_employee_name|default:"" }}</td>
+                <td class="bfc-label">Designation:</td>
+                <td>{{ data.reporting_employee_designation|default:"" }}</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Email:</td>
+                <td>{{ data.reporting_employee_email|default:"" }}</td>
+                <td class="bfc-label">Contact Number:</td>
+                <td>{{ data.reporting_employee_contact|default:"" }}</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Date of Report:</td>
+                <td colspan="3">{{ data.date_of_report|default:"" }}</td>
+            </tr>
+            <tr>
+                <td colspan="4" class="bfc-section">INCIDENT DETAILS</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Incident ID:</td>
+                <td>{{ data.incident_id|default:"" }}</td>
+                <td class="bfc-label">Date &amp; Time of Occurrence:</td>
+                <td>{{ data.date_time_of_occurrence|default:"" }}</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Date &amp; Time of Detection:</td>
+                <td>{{ data.date_time_of_detection|default:"" }}</td>
+                <td class="bfc-label">Source of Incident:</td>
+                <td>{{ data.source_of_incident|default:"" }}</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Incident Location (IP):</td>
+                <td colspan="3">{{ data.incident_location_ip|default:"" }}</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Incident Description:</td>
+                <td colspan="3">{{ data.incident_description|default:"" }}</td>
+            </tr>
+            <tr>
+                <td colspan="4" class="bfc-section">IMPACT ASSESSMENT</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Unit or Department Impacted:</td>
+                <td colspan="3">{{ data.unit_or_department_impacted|default:"" }}</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">System(s) Impacted:</td>
+                <td colspan="3">{{ data.systems_impacted|default:"" }}</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Network Impacted:</td>
+                <td colspan="3">{{ data.network_impacted|default:"" }}</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Operations Impacted:</td>
+                <td colspan="3">{{ data.operations_impacted|default:"" }}</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Incident Severity:</td>
+                <td colspan="3">
+                    <table class="bfc-severity-table">
+                        <tr>
+                            <td>Critical</td>
+                            <td>High</td>
+                            <td>Medium</td>
+                            <td>Low</td>
+                        </tr>
+                        <tr>
+                            <td>{% if data.severity_choice == "critical" or data.severity_level == "critical" %}☑{% else %}☐{% endif %}</td>
+                            <td>{% if data.severity_choice == "high" or data.severity_level == "high" %}☑{% else %}☐{% endif %}</td>
+                            <td>{% if data.severity_choice == "medium" or data.severity_level == "medium" %}☑{% else %}☐{% endif %}</td>
+                            <td>{% if data.severity_choice == "low" or data.severity_level == "low" %}☑{% else %}☐{% endif %}</td>
+                        </tr>
+                    </table>
+                </td>
+            </tr>
+            <tr>
+                <td colspan="4" class="bfc-section">INCIDENT RECOVERY DETAILS</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Recovery Actions:</td>
+                <td colspan="3">{{ data.recovery_actions|default:"" }}</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Recovery Timeframe:</td>
+                <td colspan="3">{{ data.recovery_timeframe|default:"" }}</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Post Recovery Verification:</td>
+                <td colspan="3">{{ data.post_recovery_verification|default:"" }}</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Communication:</td>
+                <td colspan="3">{{ data.recovery_communication|default:"" }}</td>
+            </tr>
+            <tr>
+                <td colspan="4" class="bfc-section">INCIDENT RESPONSE DETAILS</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Quarantine Process:</td>
+                <td colspan="3">{{ data.quarantine_process|default:"" }}</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Immediate Actions:</td>
+                <td colspan="3">{{ data.immediate_actions|default:"" }}</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Root Cause Analysis:</td>
+                <td colspan="3">{{ data.root_cause_analysis|default:"" }}</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Eradication:</td>
+                <td colspan="3">{{ data.eradication_method|default:"" }}</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Lessons Learned:</td>
+                <td colspan="3">{{ data.lessons_learned|default:"" }}</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Recommendations for Improvement:</td>
+                <td colspan="3">{{ data.recommendations_for_improvement|default:"" }}</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Action Plan:</td>
+                <td colspan="3">{{ data.action_plan|default:"" }}</td>
+            </tr>
+            <tr>
+                <td colspan="4" class="bfc-section">INCIDENT INFORMATION SHARING</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Unit or Department Requiring Notification:</td>
+                <td colspan="3">{{ data.unit_or_department_requiring_notification|default:"" }}</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Point of Contact:</td>
+                <td colspan="3">{{ data.point_of_contact|default:"" }}</td>
+            </tr>
+            <tr>
+                <td class="bfc-label">Date of Notification:</td>
+                <td colspan="3">{{ data.date_of_notification|default:"" }}</td>
+            </tr>
+            <tr>
+                <td colspan="4" class="bfc-section">ATTACHMENTS (IF APPLICABLE)</td>
+            </tr>
+            <tr>
+                <td colspan="4">{{ data.evidence_attachments|default:"" }}</td>
+            </tr>
+        </table>
+    </div>
+</body>
+</html>

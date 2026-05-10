@@ -1,0 +1,143 @@
+{% extends 'base.html' %}
+
+{% block title %}Upload Login Flash{% endblock %}
+
+{% block content %}
+<div class="surface p-3 mb-3">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <div>
+            <h3 class="mb-0 fw-bold">Upload Login Flash</h3>
+            <div class="ticket-meta mt-1">Upload a JPEG image that will pop up for users after they log in.</div>
+        </div>
+        <a href="{% url 'support_dashboard' %}" class="btn btn-outline-secondary">Back to IT Portal</a>
+    </div>
+</div>
+
+<div class="row g-3">
+    <div class="col-lg-5">
+        <div class="card surface border-0 h-100">
+            <div class="card-body">
+                <form method="post" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    <div class="mb-3">
+                        <label for="id_category" class="form-label fw-bold">Information Type</label>
+                        <select name="category" id="id_category" class="form-select">
+                            <option value="it" {% if submitted_category == "it" %}selected{% endif %}>IT Related</option>
+                            <option value="bank" {% if submitted_category == "bank" %}selected{% endif %}>Bank Related</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="id_title" class="form-label fw-bold">Title</label>
+                        <input
+                            type="text"
+                            name="title"
+                            id="id_title"
+                            class="form-control"
+                            maxlength="255"
+                            placeholder="For example: Scheduled maintenance notice"
+                            value="{{ submitted_title }}"
+                            required
+                        >
+                    </div>
+                    <div class="mb-3">
+                        <label for="id_message" class="form-label fw-bold">Message (optional)</label>
+                        <textarea
+                            name="message"
+                            id="id_message"
+                            class="form-control"
+                            rows="4"
+                            placeholder="Extra details shown under the image"
+                        >{{ submitted_message }}</textarea>
+                    </div>
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label for="id_starts_at" class="form-label fw-bold">Show From</label>
+                            <input
+                                type="datetime-local"
+                                name="starts_at"
+                                id="id_starts_at"
+                                class="form-control"
+                                value="{{ submitted_starts_at|default:default_start_at }}"
+                                required
+                            >
+                        </div>
+                        <div class="col-md-6">
+                            <label for="id_ends_at" class="form-label fw-bold">Show Until</label>
+                            <input
+                                type="datetime-local"
+                                name="ends_at"
+                                id="id_ends_at"
+                                class="form-control"
+                                value="{{ submitted_ends_at|default:default_end_at }}"
+                                required
+                            >
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="id_image" class="form-label fw-bold">JPEG image</label>
+                        <input
+                            type="file"
+                            name="image"
+                            id="id_image"
+                            class="form-control"
+                            accept=".jpg,.jpeg,image/jpeg"
+                            required
+                        >
+                        <div class="form-text">Only `.jpg` or `.jpeg` images are allowed.</div>
+                    </div>
+                    <div class="d-flex justify-content-end gap-2">
+                        <a href="{% url 'support_dashboard' %}" class="btn btn-outline-secondary">Cancel</a>
+                        <button type="submit" class="btn btn-primary">Upload Flash</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-7">
+        <div class="card surface border-0 h-100">
+            <div class="card-header bg-white border-0">
+                <h5 class="mb-0">Recent Login Flashes</h5>
+            </div>
+            <div class="card-body">
+                {% if recent_flashes %}
+                    <div class="d-grid gap-3">
+                        {% for flash in recent_flashes %}
+                            <div class="surface p-2">
+                                <div class="row g-3 align-items-center">
+                                    <div class="col-md-4">
+                                        <img
+                                            src="{% url 'portal_flash_image_view' flash.id %}"
+                                            alt="{{ flash.title }}"
+                                            class="img-fluid rounded border"
+                                            style="max-height: 180px; width: 100%; object-fit: contain; background: #f8fafc;"
+                                        >
+                                    </div>
+                                    <div class="col-md-8">
+                                        <div class="d-flex flex-wrap align-items-center gap-2">
+                                            <div class="fw-semibold">{{ flash.title }}</div>
+                                            <span class="badge-soft {% if flash.category == 'bank' %}chip-warning{% else %}chip-primary{% endif %}">
+                                                {{ flash.get_category_display }}
+                                            </span>
+                                        </div>
+                                        <div class="ticket-meta mt-1">
+                                            {{ flash.created_at|date:"M d, Y H:i" }} • {{ flash.uploaded_by.username|default:"-" }}
+                                        </div>
+                                        <div class="ticket-meta mt-1">
+                                            Active: {{ flash.starts_at|date:"M d, Y H:i" }} to {{ flash.ends_at|date:"M d, Y H:i" }}
+                                        </div>
+                                        {% if flash.message %}
+                                            <div class="text-muted small mt-2">{{ flash.message|linebreaksbr }}</div>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <p class="text-muted mb-0">No login flash images uploaded yet.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

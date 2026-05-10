@@ -230,6 +230,15 @@ class TicketCallConsumer(AsyncWebsocketConsumer):
                     f"user_notify_{target_id}",
                     {"type": "notify", "payload": notify_payload},
                 )
+            await self.channel_layer.group_send(
+                self.group_name,
+                {
+                    "type": "call_event",
+                    "event": "ring",
+                    "sender": self.channel_name,
+                    "user": user.username,
+                },
+            )
             return
 
         event = {"type": "call_event", "event": msg_type, "sender": self.channel_name, "user": user.username}

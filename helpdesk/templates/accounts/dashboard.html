@@ -80,6 +80,7 @@
                             <th>Priority</th>
                             <th>Status</th>
                             <th>Created</th>
+                            <th>Conversation</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -88,8 +89,22 @@
                                 <td>{{ ticket.ticket_id }}</td>
                                 <td><a href="{% url 'ticket_detail' ticket.id %}">{{ ticket.subject }}</a></td>
                                 <td>{{ ticket.get_priority_display }}</td>
-                                <td>{{ ticket.get_status_display }}</td>
+                                <td>{{ ticket.display_status_label|default:ticket.get_status_display }}</td>
                                 <td>{{ ticket.created_at|date:"M d, Y H:i" }}</td>
+                                <td>
+                                    <div class="d-flex flex-wrap gap-2">
+                                        {% if ticket.is_remote_access_request %}
+                                            <a href="{% url 'ticket_detail' ticket.id %}" class="btn btn-sm btn-outline-secondary">View</a>
+                                        {% else %}
+                                            <a href="{% url 'ticket_detail' ticket.id %}#ticket-chat" class="btn btn-sm btn-outline-secondary">Chat</a>
+                                            {% if ticket.status == "closed" %}
+                                                <span class="btn btn-sm btn-outline-secondary disabled" aria-disabled="true">Call</span>
+                                            {% else %}
+                                                <a href="{% url 'ticket_detail' ticket.id %}?autocall=1&callmode=start#ticket-chat" class="btn btn-sm btn-outline-primary">Call</a>
+                                            {% endif %}
+                                        {% endif %}
+                                    </div>
+                                </td>
                             </tr>
                         {% endfor %}
                     </tbody>

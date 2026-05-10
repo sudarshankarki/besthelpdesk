@@ -5,10 +5,14 @@ from django.conf import settings
 from django.conf.urls.static import static
 import os
 
+from .health import healthz, readyz
+
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('accounts/', include('accounts.urls')),
     path('tickets/', include('tickets.urls')),
+    path("healthz/", healthz, name="healthz"),
+    path("readyz/", readyz, name="readyz"),
     # Redirect root URL to login page
     path('', RedirectView.as_view(pattern_name='login', permanent=False)),
 ]

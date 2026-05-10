@@ -3,6 +3,28 @@
 {% block title %}Create Ticket{% endblock %}
 
 {% block content %}
+<style>
+    .incident-checkbox-list ul {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 0.5rem 1rem;
+    }
+
+    .incident-checkbox-list label {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        margin: 0;
+        font-weight: 600;
+    }
+
+    .incident-checkbox-list input {
+        margin: 0;
+    }
+</style>
 <div class="row justify-content-center">
     <div class="col-lg-8">
         <div class="card surface border-0">
@@ -11,8 +33,9 @@
                 <p class="text-muted mb-0">Describe your issue clearly so support can resolve it faster.</p>
             </div>
             <div class="card-body px-4 pb-4">
-                <form method="post" enctype="multipart/form-data">
+                <form method="post" enctype="multipart/form-data" data-prevent-double-submit>
                     {% csrf_token %}
+                    <input type="hidden" name="submission_token" value="{{ submission_token }}">
                     {% for hidden in form.hidden_fields %}
                         {{ hidden }}
                     {% endfor %}
@@ -66,11 +89,11 @@
                     <div class="row g-3 mb-3">
                         <div class="col-md-6">
                             <div class="border rounded-3 p-3 h-100 bg-light">
-                                <div class="small text-uppercase text-muted fw-semibold mb-2">Assignment</div>
-                                <label class="form-label fw-bold" for="{{ form.assign_email.id_for_label }}">{{ form.assign_email.label }}</label>
+                                <div class="small text-uppercase text-muted fw-semibold mb-2" id="assignment-card-title">Assignment</div>
+                                <label class="form-label fw-bold" for="{{ form.assign_email.id_for_label }}" id="assign-email-label">{{ form.assign_email.label }}</label>
                                 {{ form.assign_email }}
                                 {% if form.assign_email.help_text %}
-                                    <div class="form-text">{{ form.assign_email.help_text }}</div>
+                                    <div class="form-text" id="assign-email-help">{{ form.assign_email.help_text }}</div>
                                 {% endif %}
                                 {% for error in form.assign_email.errors %}
                                     <div class="text-danger small">{{ error }}</div>
@@ -88,6 +111,14 @@
                                     <div class="form-text">{{ form.notify_email.help_text }}</div>
                                 {% endif %}
                                 {% for error in form.notify_email.errors %}
+                                    <div class="text-danger small">{{ error }}</div>
+                                {% endfor %}
+                                <label class="form-label fw-bold mt-3" for="{{ form.cc_emails.id_for_label }}">{{ form.cc_emails.label }}</label>
+                                {{ form.cc_emails }}
+                                {% if form.cc_emails.help_text %}
+                                    <div class="form-text">{{ form.cc_emails.help_text }}</div>
+                                {% endif %}
+                                {% for error in form.cc_emails.errors %}
                                     <div class="text-danger small">{{ error }}</div>
                                 {% endfor %}
                                 <datalist id="notify-email-suggestions"></datalist>
@@ -121,6 +152,87 @@
                         </div>
                     </div>
 
+                    <div class="border rounded-3 p-3 mb-3 bg-light" id="incident-fields-section">
+                        <div class="small text-uppercase text-muted fw-semibold mb-3">Incident Details</div>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold" for="{{ form.incident_detected_at.id_for_label }}">{{ form.incident_detected_at.label }}</label>
+                                {{ form.incident_detected_at }}
+                                {% for error in form.incident_detected_at.errors %}
+                                    <div class="text-danger small">{{ error }}</div>
+                                {% endfor %}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold" for="{{ form.incident_current_status.id_for_label }}">{{ form.incident_current_status.label }}</label>
+                                {{ form.incident_current_status }}
+                                {% for error in form.incident_current_status.errors %}
+                                    <div class="text-danger small">{{ error }}</div>
+                                {% endfor %}
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label fw-bold" for="{{ form.incident_additional_departments.id_for_label }}">{{ form.incident_additional_departments.label }}</label>
+                                <div class="incident-checkbox-list">
+                                    {{ form.incident_additional_departments }}
+                                </div>
+                                {% if form.incident_additional_departments.help_text %}
+                                    <div class="form-text">{{ form.incident_additional_departments.help_text }}</div>
+                                {% endif %}
+                                {% for error in form.incident_additional_departments.errors %}
+                                    <div class="text-danger small">{{ error }}</div>
+                                {% endfor %}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold" for="{{ form.incident_service_affected.id_for_label }}">{{ form.incident_service_affected.label }}</label>
+                                {{ form.incident_service_affected }}
+                                {% for error in form.incident_service_affected.errors %}
+                                    <div class="text-danger small">{{ error }}</div>
+                                {% endfor %}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold" for="{{ form.incident_service_affected_other.id_for_label }}">{{ form.incident_service_affected_other.label }}</label>
+                                {{ form.incident_service_affected_other }}
+                                {% for error in form.incident_service_affected_other.errors %}
+                                    <div class="text-danger small">{{ error }}</div>
+                                {% endfor %}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold" for="{{ form.incident_detected_how.id_for_label }}">{{ form.incident_detected_how.label }}</label>
+                                {{ form.incident_detected_how }}
+                                {% for error in form.incident_detected_how.errors %}
+                                    <div class="text-danger small">{{ error }}</div>
+                                {% endfor %}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold" for="{{ form.incident_affected.id_for_label }}">{{ form.incident_affected.label }}</label>
+                                {{ form.incident_affected }}
+                                {% for error in form.incident_affected.errors %}
+                                    <div class="text-danger small">{{ error }}</div>
+                                {% endfor %}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold" for="{{ form.incident_business_impact.id_for_label }}">{{ form.incident_business_impact.label }}</label>
+                                {{ form.incident_business_impact }}
+                                {% for error in form.incident_business_impact.errors %}
+                                    <div class="text-danger small">{{ error }}</div>
+                                {% endfor %}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold" for="{{ form.incident_initial_action.id_for_label }}">{{ form.incident_initial_action.label }}</label>
+                                {{ form.incident_initial_action }}
+                                {% for error in form.incident_initial_action.errors %}
+                                    <div class="text-danger small">{{ error }}</div>
+                                {% endfor %}
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label fw-bold" for="{{ form.incident_evidence.id_for_label }}">{{ form.incident_evidence.label }}</label>
+                                {{ form.incident_evidence }}
+                                {% for error in form.incident_evidence.errors %}
+                                    <div class="text-danger small">{{ error }}</div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="mb-3">
                         <label class="form-label fw-bold" for="{{ form.attachments.id_for_label }}">{{ form.attachments.label }}</label>
                         {{ form.attachments }}
@@ -133,7 +245,7 @@
                     </div>
                     <div class="d-flex justify-content-end gap-2">
                         <a href="{% url 'ticket_list' %}" class="btn btn-outline-secondary">Cancel</a>
-                        <button type="submit" class="btn btn-primary">Submit Ticket</button>
+                        <button type="submit" class="btn btn-primary" data-submitting-text="Submitting...">Submit Ticket</button>
                     </div>
                 </form>
             </div>
@@ -144,12 +256,20 @@
 
 {% block extra_js %}
     {{ form.assignable_emails_by_department_and_branch|json_script:"assign-email-options" }}
-    {{ form.notify_emails_by_department|json_script:"notify-email-options" }}
+    {{ form.notify_emails_by_department_and_branch|json_script:"notify-email-options" }}
+    {{ form.all_branch_options|json_script:"all-branch-options" }}
+    {{ form.restricted_branch_by_department|json_script:"restricted-branch-options" }}
+    {{ form.default_notify_email_by_department|json_script:"default-notify-email-options" }}
     <script>
         (function () {
             const departmentSelect = document.getElementById("{{ form.department.id_for_label }}");
+            const requestTypeSelect = document.getElementById("{{ form.request_type.id_for_label }}");
             const branchSelect = document.getElementById("{{ form.branch.id_for_label }}");
+            const incidentFieldsSection = document.getElementById("incident-fields-section");
             const assignEmailInput = document.getElementById("{{ form.assign_email.id_for_label }}");
+            const assignmentCardTitle = document.getElementById("assignment-card-title");
+            const assignEmailLabel = document.getElementById("assign-email-label");
+            const assignEmailHelp = document.getElementById("assign-email-help");
             const notifyEmailInput = document.getElementById("{{ form.notify_email.id_for_label }}");
             const datalist = document.getElementById("assign-email-suggestions");
             const helpText = document.getElementById("assign-email-suggestion-help");
@@ -157,11 +277,21 @@
             const notifyHelpText = document.getElementById("notify-email-suggestion-help");
             const assignOptionsEl = document.getElementById("assign-email-options");
             const notifyOptionsEl = document.getElementById("notify-email-options");
+            const allBranchOptionsEl = document.getElementById("all-branch-options");
+            const restrictedBranchOptionsEl = document.getElementById("restricted-branch-options");
+            const defaultNotifyEmailOptionsEl = document.getElementById("default-notify-email-options");
+            const cbsHeadOfficeUrl = "{% url 'cbs_access_request' %}";
+            const cbsBranchOfficeUrl = "{% url 'cbs_access_branch_request' %}";
 
             if (
                 !departmentSelect
+                || !requestTypeSelect
                 || !branchSelect
+                || !incidentFieldsSection
                 || !assignEmailInput
+                || !assignmentCardTitle
+                || !assignEmailLabel
+                || !assignEmailHelp
                 || !notifyEmailInput
                 || !datalist
                 || !helpText
@@ -169,47 +299,95 @@
                 || !notifyHelpText
                 || !assignOptionsEl
                 || !notifyOptionsEl
+                || !allBranchOptionsEl
+                || !restrictedBranchOptionsEl
+                || !defaultNotifyEmailOptionsEl
             ) {
                 return;
             }
 
             let assignOptionsByDepartment = {};
-            let notifyOptionsByDepartment = {};
+            let notifyOptionsByDepartmentAndBranch = {};
+            let allBranchOptions = [];
+            let restrictedBranchByDepartment = {};
+            let defaultNotifyEmailByDepartment = {};
             try {
                 assignOptionsByDepartment = JSON.parse(assignOptionsEl.textContent || "{}");
             } catch (error) {
                 assignOptionsByDepartment = {};
             }
             try {
-                notifyOptionsByDepartment = JSON.parse(notifyOptionsEl.textContent || "{}");
+                notifyOptionsByDepartmentAndBranch = JSON.parse(notifyOptionsEl.textContent || "{}");
             } catch (error) {
-                notifyOptionsByDepartment = {};
+                notifyOptionsByDepartmentAndBranch = {};
+            }
+            try {
+                allBranchOptions = JSON.parse(allBranchOptionsEl.textContent || "[]");
+            } catch (error) {
+                allBranchOptions = [];
+            }
+            try {
+                restrictedBranchByDepartment = JSON.parse(restrictedBranchOptionsEl.textContent || "{}");
+            } catch (error) {
+                restrictedBranchByDepartment = {};
+            }
+            try {
+                defaultNotifyEmailByDepartment = JSON.parse(defaultNotifyEmailOptionsEl.textContent || "{}");
+            } catch (error) {
+                defaultNotifyEmailByDepartment = {};
             }
 
-            function renderSuggestions(optionsByDepartment, targetDatalist, targetHelpText, emptyMessage, availableLabel) {
-                const department = (departmentSelect.value || "").trim();
-                const emails = Array.isArray(optionsByDepartment[department]) ? optionsByDepartment[department] : [];
+            function replaceBranchOptions(options, selectedValue) {
+                const placeholder = document.createElement("option");
+                placeholder.value = "";
+                placeholder.textContent = "Select branch";
+                branchSelect.innerHTML = "";
+                branchSelect.appendChild(placeholder);
 
-                targetDatalist.innerHTML = "";
-                emails.forEach(function (email) {
+                options.forEach(function (branchName) {
                     const option = document.createElement("option");
-                    option.value = email;
-                    targetDatalist.appendChild(option);
+                    option.value = branchName;
+                    option.textContent = branchName;
+                    branchSelect.appendChild(option);
                 });
 
-                if (!department) {
-                    targetHelpText.textContent = emptyMessage;
+                branchSelect.value = selectedValue;
+                if (branchSelect.value !== selectedValue) {
+                    branchSelect.value = "";
+                }
+            }
+
+            function syncBranchOptions() {
+                const department = (departmentSelect.value || "").trim();
+                const restrictedBranch = (restrictedBranchByDepartment[department] || "").trim();
+                const currentValue = (branchSelect.value || "").trim();
+
+                if (restrictedBranch) {
+                    replaceBranchOptions([restrictedBranch], restrictedBranch);
                     return;
                 }
 
-                if (!emails.length) {
-                    targetHelpText.textContent = `No ${availableLabel} were found for the selected department.`;
+                replaceBranchOptions(allBranchOptions, currentValue);
+            }
+
+            function syncNotifyEmailDefault(forceSelection) {
+                const department = (departmentSelect.value || "").trim();
+                const defaultNotifyEmail = (defaultNotifyEmailByDepartment[department] || "").trim();
+                const currentValue = (notifyEmailInput.value || "").trim();
+                const previousAutoValue = (notifyEmailInput.dataset.autoDefaultNotifyEmail || "").trim();
+
+                if (defaultNotifyEmail) {
+                    if (forceSelection || !currentValue || currentValue === previousAutoValue) {
+                        notifyEmailInput.value = defaultNotifyEmail;
+                    }
+                    notifyEmailInput.dataset.autoDefaultNotifyEmail = defaultNotifyEmail;
                     return;
                 }
 
-                targetHelpText.textContent = emails.length === 1
-                    ? `1 ${availableLabel.slice(0, -1)} is available for the selected department.`
-                    : `${emails.length} ${availableLabel} are available for the selected department.`;
+                if (previousAutoValue && currentValue === previousAutoValue) {
+                    notifyEmailInput.value = "";
+                }
+                notifyEmailInput.dataset.autoDefaultNotifyEmail = "";
             }
 
             function renderAssignEmailSuggestions() {
@@ -241,13 +419,48 @@
             }
 
             function renderNotifyEmailSuggestions() {
-                renderSuggestions(
-                    notifyOptionsByDepartment,
-                    notifyDatalist,
-                    notifyHelpText,
-                    "Select a department to see notify email suggestions.",
-                    "notify emails"
-                );
+                const department = (departmentSelect.value || "").trim();
+                const branch = (branchSelect.value || "").trim();
+                const departmentOptions = notifyOptionsByDepartmentAndBranch[department] || {};
+                const groupMailboxes = Array.isArray(departmentOptions.group_mailboxes)
+                    ? departmentOptions.group_mailboxes
+                    : [];
+                const branchOptions = departmentOptions.branches || {};
+                const branchEmails = Array.isArray(branchOptions[branch]) ? branchOptions[branch] : [];
+                const emails = groupMailboxes.length ? groupMailboxes : branchEmails;
+
+                notifyDatalist.innerHTML = "";
+                emails.forEach(function (email) {
+                    const option = document.createElement("option");
+                    option.value = email;
+                    notifyDatalist.appendChild(option);
+                });
+
+                if (!department) {
+                    notifyHelpText.textContent = "Select a department to see notify email suggestions.";
+                    return;
+                }
+
+                if (groupMailboxes.length) {
+                    notifyHelpText.textContent = groupMailboxes.length === 1
+                        ? "1 notify email is available for the selected department."
+                        : `${groupMailboxes.length} notify emails are available for the selected department.`;
+                    return;
+                }
+
+                if (!branch) {
+                    notifyHelpText.textContent = "Select a branch to see notify email suggestions for the selected department.";
+                    return;
+                }
+
+                if (!branchEmails.length) {
+                    notifyHelpText.textContent = "No notify emails were found for the selected department and branch.";
+                    return;
+                }
+
+                notifyHelpText.textContent = branchEmails.length === 1
+                    ? "1 notify email is available for the selected department and branch."
+                    : `${branchEmails.length} notify emails are available for the selected department and branch.`;
             }
 
             function renderAllSuggestions() {
@@ -255,9 +468,53 @@
                 renderNotifyEmailSuggestions();
             }
 
-            departmentSelect.addEventListener("change", renderAllSuggestions);
+            function syncIncidentFields() {
+                if ((requestTypeSelect.value || "") === "cbs_access_ho") {
+                    window.location.href = cbsHeadOfficeUrl;
+                    return;
+                }
+                if ((requestTypeSelect.value || "") === "cbs_access_branch") {
+                    window.location.href = cbsBranchOfficeUrl;
+                    return;
+                }
+                const isIncident = (requestTypeSelect.value || "") === "incident";
+                incidentFieldsSection.hidden = !isIncident;
+                assignmentCardTitle.textContent = isIncident ? "Incident Ownership" : "Assignment";
+                assignEmailLabel.textContent = isIncident ? "Incident Commander / Ticket Owner Email" : "{{ form.assign_email.label|escapejs }}";
+                assignEmailHelp.textContent = isIncident
+                    ? "Select the user who owns this incident ticket and can edit the draft Incident Response Report. This is separate from Incident Notified User and Sign Level approvals."
+                    : "{{ form.assign_email.help_text|escapejs }}";
+            }
+
+            departmentSelect.addEventListener("change", function () {
+                syncBranchOptions();
+                syncNotifyEmailDefault(true);
+                renderAllSuggestions();
+            });
+            requestTypeSelect.addEventListener("change", syncIncidentFields);
             branchSelect.addEventListener("change", renderAllSuggestions);
+            syncIncidentFields();
+            syncNotifyEmailDefault(false);
+            syncBranchOptions();
             renderAllSuggestions();
+
+            const formEl = document.querySelector("form[data-prevent-double-submit]");
+            if (formEl) {
+                formEl.addEventListener("submit", function (event) {
+                    if (formEl.dataset.submitting === "true") {
+                        event.preventDefault();
+                        return;
+                    }
+                    formEl.dataset.submitting = "true";
+                    formEl.querySelectorAll('button[type="submit"]').forEach(function (button) {
+                        const nextLabel = button.getAttribute("data-submitting-text");
+                        button.disabled = true;
+                        if (nextLabel) {
+                            button.textContent = nextLabel;
+                        }
+                    });
+                });
+            }
         })();
     </script>
 {% endblock %}

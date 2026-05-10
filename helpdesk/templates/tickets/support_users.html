@@ -1,0 +1,100 @@
+{% extends 'base.html' %}
+
+{% block title %}Users | SupportDesk{% endblock %}
+
+{% block content %}
+<div class="surface p-3 mb-3">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <div>
+            <h2 class="mb-0 fw-bold">Users</h2>
+            <div class="ticket-meta mt-1">
+                Support-only view of total users and who is currently active in the portal.
+            </div>
+        </div>
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+            <a class="btn btn-sm btn-outline-secondary" href="{% url 'support_dashboard' %}">Back to IT Portal</a>
+            <a class="btn btn-sm btn-primary" href="{% url 'support_queue' %}">Open Queue</a>
+        </div>
+    </div>
+
+    <div class="row g-2 mt-3">
+        <div class="col-md-4">
+            <div class="surface p-3 ticket-card">
+                <div class="ticket-meta">Total Users</div>
+                <div class="d-flex justify-content-between align-items-end">
+                    <div class="h3 fw-bold mb-0">{{ total_users }}</div>
+                    <span class="badge-soft chip-muted">All accounts</span>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="surface p-3 ticket-card ticket-accent-in_progress">
+                <div class="ticket-meta">Currently Logged In</div>
+                <div class="d-flex justify-content-between align-items-end">
+                    <div class="h3 fw-bold mb-0">{{ currently_logged_in_total }}</div>
+                    <span class="badge-soft chip-primary">Online now</span>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="surface p-3 ticket-card ticket-accent-acknowledged">
+                <div class="ticket-meta">Active Window</div>
+                <div class="d-flex justify-content-between align-items-end">
+                    <div class="h3 fw-bold mb-0">{{ online_window_minutes }} min</div>
+                    <span class="badge-soft chip-warning">Recent activity</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="surface p-3">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <h5 class="fw-bold mb-0">Currently Logged In Users</h5>
+        <span class="badge-soft chip-primary">{{ currently_logged_in_total }} active</span>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle mb-0">
+            <thead>
+                <tr>
+                    <th>User</th>
+                    <th>Email</th>
+                    <th>Department</th>
+                    <th>Branch</th>
+                    <th>Role</th>
+                    <th>Last Active</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in currently_logged_in_users %}
+                    <tr>
+                        <td>
+                            <div class="fw-semibold">{{ row.user.get_full_name|default:row.user.username }}</div>
+                            <div class="ticket-meta">@{{ row.user.username }}</div>
+                        </td>
+                        <td>{{ row.user.email|default:"-" }}</td>
+                        <td>{{ row.user.department|default:"-" }}</td>
+                        <td>{{ row.user.branch|default:"-" }}</td>
+                        <td>
+                            {% if row.user.is_superuser or row.user.is_staff %}
+                                <span class="badge-soft chip-danger">Admin</span>
+                            {% elif row.user.is_itsupport %}
+                                <span class="badge-soft chip-primary">IT Support</span>
+                            {% else %}
+                                <span class="badge-soft chip-muted">User</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ row.last_seen_at|date:"M d, Y H:i:s" }}</td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="6" class="text-muted text-center py-4">
+                            No currently logged in users found in the last {{ online_window_minutes }} minutes.
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

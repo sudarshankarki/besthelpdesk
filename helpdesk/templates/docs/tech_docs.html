@@ -7,10 +7,10 @@
     <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
         <div>
             <h2 class="mb-0 fw-bold">Technical Documentation</h2>
-            <div class="ticket-meta mt-1">PDF guides and reference documents for common issues.</div>
+            <div class="ticket-meta mt-1">PDF and Excel reference documents for common issues.</div>
         </div>
         {% if can_upload %}
-            <a href="{% url 'tech_docs_upload' %}" class="btn btn-primary">Upload PDFs</a>
+            <a href="{% url 'tech_docs_upload' %}" class="btn btn-primary">Upload Documents</a>
         {% endif %}
     </div>
 </div>
@@ -38,11 +38,17 @@
                                     <span class="badge-soft chip-muted ms-2">{{ doc.get_visibility_display }}</span>
                                 {% endif %}
                             </div>
-                            <div class="ticket-meta">{{ doc.filename }}</div>
-                            {% if doc.description %}
-                                <div class="text-muted small mt-1">{{ doc.description|truncatewords:18 }}</div>
-                            {% endif %}
-                        </td>
+                             <div class="ticket-meta">{{ doc.filename }}</div>
+                             {% if doc.description %}
+                                 <div class="text-muted small mt-1">{{ doc.description|truncatewords:18 }}</div>
+                             {% endif %}
+                             {% if can_upload and doc.visibility == "branch" %}
+                                 <div class="text-muted small mt-1">Branches: {{ doc.branch_scope_display }}</div>
+                             {% elif can_upload and doc.visibility == "department" %}
+                                 <div class="text-muted small mt-1">Departments: {{ doc.department_scope_display }}</div>
+                                 <div class="text-muted small">Branches: {{ doc.branch_scope_display }}</div>
+                             {% endif %}
+                         </td>
                         <td class="d-none d-lg-table-cell">{{ doc.created_at|date:"M d, Y H:i" }}</td>
                         <td class="d-none d-xl-table-cell">{{ doc.uploaded_by.username|default:"-" }}</td>
                         <td class="text-end">

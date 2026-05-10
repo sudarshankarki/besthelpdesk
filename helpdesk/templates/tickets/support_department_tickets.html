@@ -1,0 +1,110 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ page_browser_title|default:"Department Tickets" }}{% endblock %}
+
+{% block content %}
+<div class="surface p-3 mb-3">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <div>
+            <h3 class="mb-0 fw-bold">{{ page_title|default:"Department Tickets" }}</h3>
+            <div class="ticket-meta mt-1">{{ page_description|default:"Department-routed tickets split into unassigned queue items, assigned work, and solved history." }}</div>
+        </div>
+        <form method="get" class="d-flex flex-wrap gap-2 align-items-center">
+            {% if selected_status_group %}
+                <input type="hidden" name="status_group" value="{{ selected_status_group }}">
+            {% endif %}
+            <input
+                type="text"
+                name="q"
+                value="{{ query|default:'' }}"
+                class="form-control form-control-sm"
+                style="max-width: 220px;"
+                placeholder="Ticket ID"
+            >
+            <input
+                type="text"
+                name="created_by_username"
+                value="{{ created_by_username|default:'' }}"
+                class="form-control form-control-sm"
+                style="max-width: 160px;"
+                placeholder="Creator Username"
+            >
+            <input
+                type="date"
+                name="date_from"
+                value="{{ date_from|default:'' }}"
+                class="form-control form-control-sm"
+                title="Date from"
+            >
+            <input
+                type="date"
+                name="date_to"
+                value="{{ date_to|default:'' }}"
+                class="form-control form-control-sm"
+                title="Date to"
+            >
+            <select name="status" class="form-select form-select-sm" style="min-width: 160px;">
+                <option value="">All Statuses</option>
+                <option value="new" {% if selected_status == "new" %}selected{% endif %}>New</option>
+                <option value="acknowledged" {% if selected_status == "acknowledged" %}selected{% endif %}>Acknowledged</option>
+                <option value="in_progress" {% if selected_status == "in_progress" %}selected{% endif %}>In Progress</option>
+                <option value="waiting_on_user" {% if selected_status == "waiting_on_user" %}selected{% endif %}>Waiting on User</option>
+                <option value="waiting_on_third_party" {% if selected_status == "waiting_on_third_party" %}selected{% endif %}>Waiting on Third Party</option>
+                <option value="resolved" {% if selected_status == "resolved" %}selected{% endif %}>Resolved</option>
+                <option value="closed" {% if selected_status == "closed" %}selected{% endif %}>Closed</option>
+                <option value="cancelled_duplicate" {% if selected_status == "cancelled_duplicate" %}selected{% endif %}>Cancelled / Duplicate</option>
+            </select>
+            <select name="priority" class="form-select form-select-sm" style="min-width: 140px;">
+                <option value="">All Priorities</option>
+                <option value="low" {% if selected_priority == "low" %}selected{% endif %}>Low</option>
+                <option value="medium" {% if selected_priority == "medium" %}selected{% endif %}>Medium</option>
+                <option value="high" {% if selected_priority == "high" %}selected{% endif %}>High</option>
+                <option value="critical" {% if selected_priority == "critical" %}selected{% endif %}>Critical</option>
+            </select>
+            <button type="submit" class="btn btn-sm btn-outline-primary">Apply</button>
+            {% if has_active_filters %}
+                <a href="{{ clear_url }}" class="btn btn-sm btn-outline-secondary">Clear</a>
+            {% endif %}
+        </form>
+    </div>
+</div>
+
+<div class="row g-3">
+    <div class="col-12">
+        <div class="surface p-3">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+                <div>
+                    <h5 class="fw-bold mb-0">Unassigned Department Queue</h5>
+                    <div class="ticket-meta mt-1">Tickets waiting for an owner.</div>
+                </div>
+                <span class="badge-soft chip-muted">{{ unassigned_tickets|length }} ticket{{ unassigned_tickets|length|pluralize }}</span>
+            </div>
+            {% include "tickets/_support_ticket_table.html" with tickets=unassigned_tickets empty_message="No unassigned department tickets found." %}
+        </div>
+    </div>
+    <div class="col-12">
+        <div class="surface p-3">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+                <div>
+                    <h5 class="fw-bold mb-0">Assigned Department Tickets</h5>
+                    <div class="ticket-meta mt-1">Tickets already owned by a support user.</div>
+                </div>
+                <span class="badge-soft chip-muted">{{ assigned_tickets|length }} ticket{{ assigned_tickets|length|pluralize }}</span>
+            </div>
+            {% include "tickets/_support_ticket_table.html" with tickets=assigned_tickets empty_message="No assigned department tickets found." %}
+        </div>
+    </div>
+    <div class="col-12">
+        <div class="surface p-3">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+                <div>
+                    <h5 class="fw-bold mb-0">Resolved / Closed Department Tickets</h5>
+                    <div class="ticket-meta mt-1">Resolved, closed, and cancelled department tickets.</div>
+                </div>
+                <span class="badge-soft chip-muted">{{ solved_tickets|length }} ticket{{ solved_tickets|length|pluralize }}</span>
+            </div>
+            {% include "tickets/_support_ticket_table.html" with tickets=solved_tickets empty_message="No solved department tickets found." %}
+        </div>
+    </div>
+</div>
+{% endblock %}

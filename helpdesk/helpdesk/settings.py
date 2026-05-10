@@ -123,7 +123,8 @@ def load_local_env(path):
             if not line or line.startswith("#") or "=" not in line:
                 continue
             key, value = line.split("=", 1)
-            os.environ.setdefault(key.strip(), value.strip())
+            cleaned_value = value.strip().replace("$$", "$")
+            os.environ.setdefault(key.strip(), cleaned_value)
 
 
 load_local_env(os.path.join(BASE_DIR, ".env"))
@@ -182,6 +183,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'accounts.middleware.ActiveUserSessionMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -200,6 +202,8 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'accounts.context_processors.auth_mode_flags',
+                'tickets.context_processors.login_flash_announcements',
             ],
         },
     },
@@ -289,10 +293,48 @@ USE_TZ = True
 
 
 AUTH_USER_MODEL = 'accounts.CustomUser'
+AD_AUTH_ENABLED = env_bool("AD_AUTH_ENABLED", default=False)
+AD_ONLY_LOGIN = AD_AUTH_ENABLED and env_bool("AD_ONLY_LOGIN", default=False)
+LOCAL_ACCOUNT_SELF_SERVICE_ENABLED = env_bool(
+    "LOCAL_ACCOUNT_SELF_SERVICE_ENABLED",
+    default=not AD_ONLY_LOGIN,
+)
+LOCAL_RECOVERY_SUPERUSERS = parse_csv_env("LOCAL_RECOVERY_SUPERUSERS")
+AD_USE_SSL = env_bool("AD_USE_SSL", default=False)
+AD_SERVER_HOST = os.getenv("AD_SERVER_HOST", "").strip()
+AD_SERVER_HOSTS = parse_csv_env("AD_SERVER_HOSTS")
+AD_SERVER_PORT = int(os.getenv("AD_SERVER_PORT", "636" if AD_USE_SSL else "389"))
+AD_VALIDATE_CERTS = env_bool("AD_VALIDATE_CERTS", default=True)
+AD_CA_CERT_FILE = os.getenv("AD_CA_CERT_FILE", "").strip()
+AD_CONNECT_TIMEOUT = int(os.getenv("AD_CONNECT_TIMEOUT", "5"))
+AD_RECEIVE_TIMEOUT = int(os.getenv("AD_RECEIVE_TIMEOUT", "10"))
+AD_BASE_DN = os.getenv("AD_BASE_DN", "").strip()
+AD_USER_SEARCH_BASE = os.getenv("AD_USER_SEARCH_BASE", "").strip()
+AD_BIND_DN = os.getenv("AD_BIND_DN", "").strip()
+AD_BIND_PASSWORD = os.getenv("AD_BIND_PASSWORD", "")
+AD_LOGIN_ATTR = os.getenv("AD_LOGIN_ATTR", "sAMAccountName").strip()
+AD_USER_PRINCIPAL_ATTR = os.getenv("AD_USER_PRINCIPAL_ATTR", "userPrincipalName").strip()
+AD_USERNAME_ATTR = os.getenv("AD_USERNAME_ATTR", "sAMAccountName").strip()
+AD_EMAIL_ATTR = os.getenv("AD_EMAIL_ATTR", "mail").strip()
+AD_FIRST_NAME_ATTR = os.getenv("AD_FIRST_NAME_ATTR", "givenName").strip()
+AD_LAST_NAME_ATTR = os.getenv("AD_LAST_NAME_ATTR", "sn").strip()
+AD_DEPARTMENT_ATTR = os.getenv("AD_DEPARTMENT_ATTR", "department").strip()
+AD_POSITION_ATTR = os.getenv("AD_POSITION_ATTR", "title").strip()
+AD_BRANCH_ATTR = os.getenv("AD_BRANCH_ATTR", "physicalDeliveryOfficeName").strip()
+AD_GROUP_ATTR = os.getenv("AD_GROUP_ATTR", "memberOf").strip()
+AD_ALLOWED_GROUP_DN = os.getenv("AD_ALLOWED_GROUP_DN", "").strip()
+AD_STAFF_GROUP_DN = os.getenv("AD_STAFF_GROUP_DN", "").strip()
+AD_ITSUPPORT_GROUP_DN = os.getenv("AD_ITSUPPORT_GROUP_DN", "").strip()
+AUTHENTICATION_BACKENDS = [
+    "accounts.backends.ActiveDirectoryBackend",
+    "accounts.backends.RecoverySuperuserBackend",
+]
 
 LOGIN_REDIRECT_URL = 'dashboard'  # Where to redirect after login
 LOGOUT_REDIRECT_URL = 'login'     # Where to redirect after logout
 LOGIN_URL = 'login'               # The login page URL
+USER_ACTIVITY_ONLINE_MINUTES = int(os.getenv("USER_ACTIVITY_ONLINE_MINUTES", "30"))
+USER_ACTIVITY_TOUCH_INTERVAL_SECONDS = int(os.getenv("USER_ACTIVITY_TOUCH_INTERVAL_SECONDS", "60"))
 
 # Email settings (SMTP if configured, else console)
 SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
@@ -316,6 +358,7 @@ else:
 
 DEFAULT_FROM_EMAIL = SMTP_FROM_EMAIL or os.getenv('DEFAULT_FROM_EMAIL', 'helpdesk@bestfinance.com.np')
 IT_SUPPORT_EMAIL = os.getenv('IT_SUPPORT_EMAIL', 'helpdesk@bestfinance.com.np')
+SITE_URL = os.getenv("SITE_URL", "").strip().rstrip("/")
 MESSAGE_RETENTION_DAYS = int(os.getenv('MESSAGE_RETENTION_DAYS', '180'))
 OPEN_TICKET_CONVERSATION_RETENTION_DAYS = int(os.getenv("OPEN_TICKET_CONVERSATION_RETENTION_DAYS", "10"))
 TICKET_AUTO_CLOSE_DAYS = int(os.getenv("TICKET_AUTO_CLOSE_DAYS", "10"))

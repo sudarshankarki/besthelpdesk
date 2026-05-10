@@ -10,17 +10,48 @@ from django.conf import settings
 from django.core.mail import send_mail
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.contrib.auth import views as auth_views
+from django.db.models import Q
 from django.urls import reverse
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 import logging
+from .auth_mode import is_local_account_self_service_enabled
 from .forms import CompleteSignupForm, SignupRequestForm
 from .utils import get_outgoing_from_email, logout_user_from_all_sessions
-from tickets.models import Ticket
+from tickets.models import RemoteAccessApproval, Ticket
 
 logger = logging.getLogger(__name__)
 
+
+def _local_account_self_service_enabled():
+    return is_local_account_self_service_enabled()
+
+
+def _directory_login_message():
+    return "Use your office Active Directory account to sign in. Local registration and password reset are disabled."
+
+
+def _redirect_to_login_with_directory_message(request):
+    messages.info(request, _directory_login_message())
+    return redirect("login")
+
+
+def _find_local_login_candidate(identifier):
+    normalized_identifier = (identifier or "").strip()
+    if not normalized_identifier:
+        return None
+
+    user_model = get_user_model()
+    query = Q(username__iexact=normalized_identifier)
+    if "@" in normalized_identifier:
+        query |= Q(email__iexact=normalized_identifier)
+    return user_model.objects.filter(query).first()
+
+
 def signup(request):
+    if not _local_account_self_service_enabled():
+        return _redirect_to_login_with_directory_message(request)
+
     if request.method == 'POST':
         form = SignupRequestForm(request.POST)
         if form.is_valid():
@@ -59,6 +90,9 @@ def signup(request):
 
 
 def complete_signup(request, token):
+    if not _local_account_self_service_enabled():
+        return _redirect_to_login_with_directory_message(request)
+
     signer = TimestampSigner(salt="bestsupport-signup")
     try:
         email = signer.unsign(token, max_age=settings.SIGNUP_LINK_MAX_AGE_SECONDS)
@@ -83,22 +117,15 @@ def login_view(request):
         username_or_email = (request.POST.get('username') or '').strip()
         password = request.POST.get('password') or ''
 
-        login_username = username_or_email
-        if '@' in username_or_email:
-            user_model = get_user_model()
-            matched_user = user_model.objects.filter(email__iexact=username_or_email).first()
-            if matched_user:
-                login_username = matched_user.get_username()
-
-        user = authenticate(request, username=login_username, password=password)
+        user = authenticate(request, username=username_or_email, password=password)
 
         if user is not None:
             login(request, user)
+            request.session["show_login_flash_announcements"] = True
             messages.success(request, f'Welcome back, {user.get_username()}!')
             return redirect('ticket_list')
         else:
-            user_model = get_user_model()
-            candidate = user_model.objects.filter(username=login_username).first()
+            candidate = _find_local_login_candidate(username_or_email)
             if candidate and candidate.check_password(password) and not candidate.is_active:
                 messages.warning(request, 'Please verify your email before logging in.')
                 return render(request, 'accounts/login.html')
@@ -108,12 +135,41 @@ def login_view(request):
 
 
 class PasswordResetView(auth_views.PasswordResetView):
+    def dispatch(self, request, *args, **kwargs):
+        if not _local_account_self_service_enabled():
+            return _redirect_to_login_with_directory_message(request)
+        return super().dispatch(request, *args, **kwargs)
+
     def form_valid(self, form):
         self.from_email = get_outgoing_from_email()
         return super().form_valid(form)
 
 
+class PasswordResetDoneView(auth_views.PasswordResetDoneView):
+    def dispatch(self, request, *args, **kwargs):
+        if not _local_account_self_service_enabled():
+            return _redirect_to_login_with_directory_message(request)
+        return super().dispatch(request, *args, **kwargs)
+
+
+class PasswordResetConfirmView(auth_views.PasswordResetConfirmView):
+    def dispatch(self, request, *args, **kwargs):
+        if not _local_account_self_service_enabled():
+            return _redirect_to_login_with_directory_message(request)
+        return super().dispatch(request, *args, **kwargs)
+
+
+class PasswordResetCompleteView(auth_views.PasswordResetCompleteView):
+    def dispatch(self, request, *args, **kwargs):
+        if not _local_account_self_service_enabled():
+            return _redirect_to_login_with_directory_message(request)
+        return super().dispatch(request, *args, **kwargs)
+
+
 def verify_email(request, uidb64, token):
+    if not _local_account_self_service_enabled():
+        return _redirect_to_login_with_directory_message(request)
+
     user_model = get_user_model()
     try:
         user_id = force_str(urlsafe_base64_decode(uidb64))
@@ -143,8 +199,20 @@ def logout_view(request):
 def dashboard(request):
     user = request.user
 
-    user_ticket_queryset = Ticket.objects.filter(created_by=user)
-    user_tickets = user_ticket_queryset.order_by('-created_at')[:5]
+    user_ticket_queryset = Ticket.objects.filter(created_by=user).select_related("remote_access_approval")
+    user_tickets = list(user_ticket_queryset.order_by('-created_at')[:5])
+    for ticket in user_tickets:
+        try:
+            remote_access_approval = ticket.remote_access_approval
+            ticket.is_remote_access_request = remote_access_approval is not None
+            ticket.display_status_label = (
+                remote_access_approval.get_status_display()
+                if remote_access_approval is not None
+                else ticket.get_status_display()
+            )
+        except RemoteAccessApproval.DoesNotExist:
+            ticket.is_remote_access_request = False
+            ticket.display_status_label = ticket.get_status_display()
 
     new_tickets = user_ticket_queryset.filter(status="new").count()
     in_progress_tickets = user_ticket_queryset.filter(status='in_progress').count()

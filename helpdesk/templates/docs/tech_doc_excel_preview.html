@@ -1,0 +1,154 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ document.title }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .excel-sheet-links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.6rem;
+    }
+
+    .excel-sheet-link {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.45rem 0.8rem;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: #f6fbf8;
+        color: var(--ink);
+        text-decoration: none;
+        font-weight: 700;
+    }
+
+    .excel-sheet-link:hover {
+        background: #e7f4ee;
+        color: var(--ink);
+    }
+
+    .excel-sheet-table th,
+    .excel-sheet-table td {
+        min-width: 160px;
+        white-space: nowrap;
+        vertical-align: top;
+    }
+
+    .excel-sheet-table {
+        width: max-content;
+        min-width: 100%;
+    }
+
+    .excel-sheet-table thead th {
+        background: #eef7f2;
+        position: sticky;
+        top: 0;
+        z-index: 1;
+    }
+
+    .excel-row-number {
+        width: 74px;
+        min-width: 74px;
+        background: #f8fbf9;
+        white-space: nowrap;
+    }
+
+    .excel-sheet-table thead th:nth-child(2),
+    .excel-sheet-table tbody td:first-of-type {
+        min-width: 280px;
+    }
+
+    .excel-sheet-scroll-hint {
+        color: var(--muted);
+        font-size: 0.85rem;
+        font-weight: 700;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="top" class="surface p-3 p-lg-4 mb-3">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+        <div>
+            <div class="ticket-meta mb-2">Technical Documentation</div>
+            <h2 class="mb-1 fw-bold">{{ document.title }}</h2>
+            <div class="ticket-meta">{{ document.filename }}</div>
+            {% if document.description %}
+                <div class="text-muted mt-2">{{ document.description }}</div>
+            {% endif %}
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+            <a href="{% url 'tech_docs' %}" class="btn btn-outline-secondary">Back</a>
+            <a href="{{ download_url }}" class="btn btn-primary">Download</a>
+        </div>
+    </div>
+</div>
+
+{% if preview_error %}
+    <div class="surface p-4 text-center">
+        <h3 class="h5 fw-bold mb-2">Preview unavailable</h3>
+        <p class="text-muted mb-3">{{ preview_error }}</p>
+        <a href="{{ download_url }}" class="btn btn-primary">Download Excel</a>
+    </div>
+{% else %}
+    <div class="surface p-3 mb-3">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div>
+                <h3 class="h5 fw-bold mb-1">Workbook Sheets</h3>
+                <div class="ticket-meta">Every worksheet is shown below in the browser preview.</div>
+            </div>
+            <div class="ticket-meta">{{ sheets|length }} sheet{{ sheets|pluralize }}</div>
+        </div>
+        <div class="excel-sheet-scroll-hint mt-2">Scroll horizontally if the sheet has many columns.</div>
+        <div class="excel-sheet-links mt-3">
+            {% for sheet in sheets %}
+                <a class="excel-sheet-link" href="#{{ sheet.anchor }}">{{ sheet.name }}</a>
+            {% endfor %}
+        </div>
+    </div>
+
+    {% for sheet in sheets %}
+        <section id="{{ sheet.anchor }}" class="surface p-3 mb-3">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+                <div>
+                    <h3 class="h5 fw-bold mb-1">{{ sheet.name }}</h3>
+                    <div class="ticket-meta">
+                        {{ sheet.rows|length }} row{{ sheet.rows|pluralize }}
+                        {% if sheet.columns %}
+                            | {{ sheet.columns|length }} column{{ sheet.columns|pluralize }}
+                        {% endif %}
+                    </div>
+                </div>
+                <a href="#top" class="btn btn-sm btn-outline-secondary">Top</a>
+            </div>
+
+            {% if sheet.rows %}
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered align-middle excel-sheet-table mb-0">
+                        <thead>
+                            <tr>
+                                <th class="excel-row-number">Row</th>
+                                {% for column in sheet.columns %}
+                                    <th>{{ column }}</th>
+                                {% endfor %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in sheet.rows %}
+                                <tr>
+                                    <th class="excel-row-number">{{ row.number }}</th>
+                                    {% for value in row.values %}
+                                        <td>{{ value }}</td>
+                                    {% endfor %}
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="text-muted">This sheet is empty.</div>
+            {% endif %}
+        </section>
+    {% endfor %}
+{% endif %}
+{% endblock %}

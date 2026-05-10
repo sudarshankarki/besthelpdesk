@@ -22,12 +22,14 @@ def get_chat_notification_target_ids(ticket, sender_user_id):
 
 def build_call_notification_payload(ticket, caller):
     caller_name = caller.get_full_name().strip() or caller.username
+    ticket_url = reverse("ticket_detail", args=[ticket.id])
     return {
         "kind": "incoming_call",
         "level": "warning",
         "title": "Incoming audio call",
         "message": f"{caller_name} is calling on ticket {ticket.ticket_id}: {ticket.subject}",
-        "url": reverse("ticket_detail", args=[ticket.id]),
+        "url": ticket_url,
+        "answer_url": f"{ticket_url}?autocall=1&callmode=answer#ticket-chat",
         "ticket_id": ticket.id,
         "ticket_code": ticket.ticket_id,
         "caller": caller.username,

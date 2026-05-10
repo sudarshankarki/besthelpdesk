@@ -6,15 +6,12 @@
     <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
         <div>
             <h2 class="mb-0 fw-bold">Tickets</h2>
-            <div class="ticket-meta mt-1">Search by Ticket ID and filter tickets by status or a start and end date.</div>
+            <div class="ticket-meta mt-1">Search by Ticket ID and filter tickets by type, status, creator or assignee scope, or a start and end date.</div>
         </div>
         <a href="{% url 'create_ticket' %}" class="btn btn-primary">New Ticket</a>
     </div>
 
     <form method="get" class="row g-2 align-items-center mt-3">
-        {% if selected_scope %}
-            <input type="hidden" name="scope" value="{{ selected_scope }}">
-        {% endif %}
         <div class="col-12 col-md-6 col-lg-4">
             <input
                 type="text"
@@ -32,6 +29,22 @@
                 {% endfor %}
             </select>
         </div>
+        <div class="col-12 col-md-3 col-lg-2">
+            <select name="request_type" class="form-select" title="Ticket type">
+                {% for value, label in request_type_choices %}
+                    <option value="{{ value }}" {% if selected_request_type == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        {% if show_scope_filters %}
+            <div class="col-12 col-md-3 col-lg-2">
+                <select name="scope" class="form-select" title="Scope">
+                    {% for value, label in scope_choices %}
+                        <option value="{{ value }}" {% if selected_scope == value %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        {% endif %}
         <div class="col-12 col-md-3 col-lg-2">
             <input
                 type="date"
@@ -62,7 +75,7 @@
 {% if tickets %}
     <div class="d-grid gap-3">
         {% for ticket in tickets %}
-            <div class="surface p-3 ticket-card ticket-accent-{{ ticket.status }}" data-ticket-id="{{ ticket.id }}">
+            <div class="surface p-3 ticket-card ticket-accent-{{ ticket.status }}{% if ticket.overdue_attention_level %} ticket-overdue-{{ ticket.overdue_attention_level }}{% endif %}" data-ticket-id="{{ ticket.id }}">
                 <div class="d-flex justify-content-between align-items-start gap-3">
                     <div class="flex-grow-1">
                         <div class="d-flex flex-wrap align-items-center gap-2">
@@ -75,7 +88,7 @@
 
                         <div class="ticket-meta mt-2">
                             <span class="me-2">By: {{ ticket.created_by.username }}</span>
-                            <span class="me-2">Assigned: {{ ticket.assigned_to|default:"Unassigned" }}</span>
+                            <span class="me-2">Assigned: {{ ticket.display_assignee|default:"Unassigned" }}</span>
                             {% if ticket.department %}
                                 <span class="me-2">Dept: {{ ticket.department }}</span>
                             {% endif %}
@@ -89,14 +102,21 @@
                         <div class="text-muted small mt-2">{{ ticket.description|truncatewords:22 }}</div>
                     </div>
                      <div class="d-flex flex-wrap gap-2 justify-content-end">
+                        {% if ticket.overdue_attention_level %}
+                            <span class="ticket-overdue-badge ticket-overdue-{{ ticket.overdue_attention_level }}">
+                                {{ ticket.overdue_attention_label }}
+                            </span>
+                        {% endif %}
                         {% if ticket.is_department_ticket and ticket.created_by_id != user.id and ticket.assigned_to_id != user.id %}
                             <span class="badge-soft chip-primary">Department Queue</span>
                         {% endif %}
+                        {% if ticket.show_priority_badge %}
                         <span class="badge-soft {% if ticket.priority == 'high' or ticket.priority == 'critical' or ticket.priority == 'urgent' %}chip-danger{% elif ticket.priority == 'medium' %}chip-warning{% else %}chip-primary{% endif %}">
                             {{ ticket.get_priority_display }}
                         </span>
-                        <span class="badge-soft {% if ticket.status == 'resolved' %}chip-success{% elif ticket.status == 'new' or ticket.status == 'open' %}chip-primary{% elif ticket.status == 'acknowledged' %}chip-primary{% elif ticket.status == 'in_progress' or ticket.status == 'waiting_on_user' or ticket.status == 'waiting_on_third_party' %}chip-warning{% elif ticket.status == 'closed' %}chip-danger{% else %}chip-muted{% endif %}">
-                            {{ ticket.get_status_display }}
+                        {% endif %}
+                        <span class="badge-soft {{ ticket.display_status_chip_class }}">
+                            {{ ticket.display_status_label }}
                         </span>
                         <a href="{% url 'ticket_detail' ticket.id %}" class="btn btn-sm btn-outline-secondary">Open</a>
                         {% if ticket.can_claim %}

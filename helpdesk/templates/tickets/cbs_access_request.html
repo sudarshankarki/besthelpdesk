@@ -1,0 +1,424 @@
+{% extends 'base.html' %}
+
+{% block title %}CBS Access Request{% endblock %}
+
+{% block content %}
+<style>
+    .cbs-template {
+        background: #fff;
+        color: #111;
+        padding: 0;
+    }
+
+    .cbs-form-table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+        margin-bottom: 0;
+        border: 2px solid #000;
+    }
+
+    .cbs-form-table th,
+    .cbs-form-table td {
+        border: 1.5px solid #000;
+        padding: 0.34rem 0.45rem;
+        vertical-align: middle;
+        color: #000;
+    }
+
+    .cbs-form-table th {
+        background: #fff;
+        text-align: center;
+        font-weight: 700;
+    }
+
+    .cbs-doc-title {
+        text-align: center;
+        font-weight: 800;
+        font-size: 1.05rem;
+    }
+
+    .cbs-doc-section {
+        font-weight: 800;
+        text-transform: uppercase;
+    }
+
+    .cbs-label-cell {
+        width: 18%;
+        font-weight: 700;
+    }
+
+    .cbs-form-table .form-control,
+    .cbs-form-table .form-select {
+        width: 100%;
+        min-height: 2.1rem;
+        border: 0;
+        border-radius: 0;
+        padding: 0.12rem 0.2rem;
+        box-shadow: none;
+        background: transparent;
+        color: #000;
+        min-height: 1.85rem;
+    }
+
+    .cbs-form-table textarea.form-control {
+        min-height: 4.5rem;
+        resize: vertical;
+    }
+
+    .cbs-radio-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1.25rem;
+        align-items: center;
+    }
+
+    .cbs-radio-row .form-check {
+        display: inline-flex;
+        margin: 0;
+    }
+
+    .cbs-please-cell {
+        width: 72px;
+        text-align: center;
+    }
+
+    .cbs-group-code {
+        width: 72px;
+        text-align: center;
+        font-weight: 700;
+    }
+
+    .cbs-form-table input[type="checkbox"] {
+        width: 1.05rem;
+        height: 1.05rem;
+        margin: 0;
+    }
+
+    .cbs-approval-heading {
+        text-align: center;
+        font-weight: 700;
+    }
+
+    .cbs-signature-cell {
+        height: 56px;
+    }
+
+    .cbs-branch-signoff-table {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .cbs-branch-signoff-table > div {
+        border-right: 1.5px solid #000;
+        border-bottom: 1.5px solid #000;
+        min-width: 0;
+        padding: 0.34rem 0.45rem;
+    }
+
+    .cbs-branch-signoff-table > div:nth-child(4n) {
+        border-right: 0;
+    }
+
+    .cbs-branch-signoff-table .cbs-signature-cell {
+        min-height: 56px;
+    }
+
+    .cbs-endorsement {
+        line-height: 1.35;
+    }
+
+    .cbs-scroll-wrap {
+        overflow-x: auto;
+    }
+
+    .cbs-workflow-panel {
+        border: 1px solid #d8dee6;
+        background: #f8fafc;
+        padding: 1rem;
+        margin-top: 1rem;
+    }
+
+    @media (max-width: 576px) {
+        .cbs-template {
+            padding: 0.75rem;
+        }
+
+        .cbs-form-table {
+            min-width: 900px;
+        }
+    }
+</style>
+
+<div class="row justify-content-center">
+    <div class="col-xl-10">
+        <div class="card surface border-0">
+            <div class="card-header bg-white border-0 pt-4 px-4 d-flex flex-wrap justify-content-between align-items-start gap-2">
+                <div>
+                    <h4 class="mb-1 fw-bold">{% if cbs_form_mode == "correct" %}Correct CBS Access Request{% else %}CBS Access Request{% endif %}</h4>
+                    <p class="text-muted mb-0">
+                        {% if cbs_form_mode == "correct" %}
+                            Update the rejected request and resubmit it to the approval chain.
+                        {% else %}
+                            Fill the {{ cbs_office_label|default:"Head Office" }} CBS user ID request form and submit it to IT.
+                        {% endif %}
+                    </p>
+                </div>
+                <div class="d-flex flex-wrap gap-2">
+                    <a class="btn btn-outline-secondary" href="{% url 'cbs_access_request_template_download' %}{% if cbs_office_type == 'branch' %}?office=branch{% endif %}">Blank DOC</a>
+                </div>
+            </div>
+            <div class="card-body px-4 pb-4">
+                <form method="post" data-prevent-double-submit>
+                    {% csrf_token %}
+                    <input type="hidden" name="submission_token" value="{{ submission_token }}">
+
+                    {% if form.non_field_errors %}
+                        <div class="alert alert-danger py-2">
+                            {% for error in form.non_field_errors %}
+                                <div>{{ error }}</div>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+
+                    <div class="cbs-template">
+                        <div style="display:none;">{{ form.subject }}</div>
+                        <div class="cbs-scroll-wrap">
+                            <table class="cbs-form-table">
+                                <tr>
+                                    <td colspan="6" class="cbs-doc-title">USER ID REQUEST FORM&nbsp; FOR CBS (For {{ cbs_office_label|default:"Head Office" }} Only)</td>
+                                </tr>
+                                <tr>
+                                    <td colspan="6" class="cbs-doc-section">USER INFORMATION:</td>
+                                </tr>
+                                <tr>
+                                    <td class="cbs-label-cell">Name</td>
+                                    <td colspan="5">{{ form.name }}</td>
+                                </tr>
+                                <tr>
+                                    <td class="cbs-label-cell">Designation</td>
+                                    <td colspan="5">{{ form.designation }}</td>
+                                </tr>
+                                <tr>
+                                    <td class="cbs-label-cell">{{ form.department.label }}</td>
+                                    <td colspan="5">{{ form.department }}</td>
+                                </tr>
+                                <tr>
+                                    <td class="cbs-label-cell">Employee ID</td>
+                                    <td colspan="5">{{ form.employee_id }}</td>
+                                </tr>
+                                <tr>
+                                    <td class="cbs-label-cell">User Acknowledgement Signature</td>
+                                    <td colspan="5">
+                                        {{ form.access_user }}
+                                        {% if form.access_user.help_text %}<div class="form-text">{{ form.access_user.help_text }}</div>{% endif %}
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td class="cbs-label-cell">Type of User</td>
+                                    <td></td>
+                                    <td colspan="2">
+                                        <div class="cbs-radio-row">
+                                            <span class="form-check">{{ form.user_type.0.tag }}<label class="form-check-label" for="{{ form.user_type.0.id_for_label }}">New&nbsp; User</label></span>
+                                        </div>
+                                    </td>
+                                    <td colspan="2"></td>
+                                </tr>
+                                <tr>
+                                    <td></td>
+                                    <td></td>
+                                    <td colspan="2">
+                                        <span class="form-check">{{ form.user_type.1.tag }}<label class="form-check-label" for="{{ form.user_type.1.id_for_label }}">Amendment for Old User</label></span>
+                                    </td>
+                                    <td class="cbs-label-cell">Old User ID</td>
+                                    <td>{{ form.old_user_id }}</td>
+                                </tr>
+                                <tr>
+                                    <td colspan="6" class="cbs-doc-section">USER REQUIREMENTS AND APPROVALS:</td>
+                                </tr>
+                                <tr>
+                                    <th>User Group</th>
+                                    <th>Description</th>
+                                    <th class="cbs-please-cell">Please (X)</th>
+                                    <th>User Group</th>
+                                    <th>Description</th>
+                                    <th class="cbs-please-cell">Please (X)</th>
+                                </tr>
+                                {% for row in user_group_rows %}
+                                <tr>
+                                    <td class="cbs-group-code">{{ row.left_code }}</td>
+                                    <td>{{ row.left_label }}</td>
+                                    <td class="cbs-please-cell">
+                                        <input type="checkbox" name="user_groups" value="{{ row.left_code }}" id="id_user_groups_{{ forloop.counter0 }}_left" {% if row.left_checked %}checked{% endif %}>
+                                    </td>
+                                    <td class="cbs-group-code">{{ row.right_code }}</td>
+                                    <td>{{ row.right_label }}</td>
+                                    <td class="cbs-please-cell">
+                                        {% if row.right_code %}
+                                            <input type="checkbox" name="user_groups" value="{{ row.right_code }}" id="id_user_groups_{{ forloop.counter0 }}_right" {% if row.right_checked %}checked{% endif %}>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                                <tr>
+                                    <td colspan="6"><strong>Reason for Amendment for Old User:</strong> {{ form.amendment_reason }}</td>
+                                </tr>
+                                {% if cbs_office_type == "branch" %}
+                                    <tr>
+                                        <td colspan="6" class="p-0">
+                                            <div class="cbs-branch-signoff-table">
+                                                <div class="cbs-approval-heading">User Requested By</div>
+                                                <div class="cbs-approval-heading">Recommended By</div>
+                                                <div class="cbs-approval-heading">Recommended By</div>
+                                                <div class="cbs-approval-heading">Approved By</div>
+                                                <div class="cbs-signature-cell"></div>
+                                                <div class="cbs-signature-cell"></div>
+                                                <div class="cbs-signature-cell"></div>
+                                                <div class="cbs-signature-cell"></div>
+                                                <div>Name: {{ form.requested_by_name }}</div>
+                                                <div>Name: {{ form.recommended_by_name }}</div>
+                                                <div>Name: {{ form.branch_second_recommended_by_name }}</div>
+                                                <div>Name: {{ form.approved_by_name }}</div>
+                                                <div>Designation: {{ form.requested_by_designation }}</div>
+                                                <div>Designation: {{ form.recommended_by_designation }}</div>
+                                                <div>Designation: {{ form.branch_second_recommended_by_designation }}</div>
+                                                <div>Designation: {{ form.approved_by_designation }}</div>
+                                                <div>Date: {{ form.requested_by_date }}</div>
+                                                <div>Date: {{ form.recommended_by_date }}</div>
+                                                <div>Date: {{ form.branch_second_recommended_by_date }}</div>
+                                                <div>Date: {{ form.approved_by_date }}</div>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                {% else %}
+                                    <tr>
+                                        <td colspan="2" class="cbs-approval-heading">User Requested By</td>
+                                        <td colspan="2" class="cbs-approval-heading">Recommended By</td>
+                                        <td colspan="2" class="cbs-approval-heading">Approved By</td>
+                                    </tr>
+                                    <tr>
+                                        <td colspan="2" class="cbs-signature-cell"></td>
+                                        <td colspan="2" class="cbs-signature-cell"></td>
+                                        <td colspan="2" class="cbs-signature-cell"></td>
+                                    </tr>
+                                    <tr>
+                                        <td colspan="2">Name: {{ form.requested_by_name }}</td>
+                                        <td colspan="2">Name: {{ form.recommended_by_name }}</td>
+                                        <td colspan="2">Name: {{ form.approved_by_name }}</td>
+                                    </tr>
+                                    <tr>
+                                        <td colspan="2">Designation: {{ form.requested_by_designation }}</td>
+                                        <td colspan="2">Designation: {{ form.recommended_by_designation }}</td>
+                                        <td colspan="2">Designation: {{ form.approved_by_designation }}</td>
+                                    </tr>
+                                    <tr>
+                                        <td colspan="2">Date: {{ form.requested_by_date }}</td>
+                                        <td colspan="2">Date: {{ form.recommended_by_date }}</td>
+                                        <td colspan="2">Date: {{ form.approved_by_date }}</td>
+                                    </tr>
+                                {% endif %}
+                                <tr>
+                                    <td colspan="6" class="cbs-doc-section">3. ENDORSEMENT BY USER:</td>
+                                </tr>
+                                <tr>
+                                    <td colspan="6" class="cbs-endorsement">
+                                    By signing below I acknowledge that I am the authorized user of the Pumori System and possess the appropriate power to login with aforementioned user id. I will keep my user id and password as equal to my signature. The information provided herein is correct and true in my knowledge.
+                                    <br><br>
+                                    User Signature with Date: Captured from the selected user who needs access.
+                                    <span class="ms-3">
+                                        <span class="form-check">
+                                            {{ form.endorsement }}
+                                            <label class="form-check-label fw-bold" for="{{ form.endorsement.id_for_label }}">I acknowledge</label>
+                                        </span>
+                                    </span>
+                                    </td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+
+                    {% for error in form.name.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+                    {% for error in form.designation.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+                    {% for error in form.department.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+                    {% for error in form.employee_id.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+                    {% for error in form.access_user.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+                    {% for error in form.user_type.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+                    {% for error in form.old_user_id.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+                    {% for error in form.user_groups.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+                    {% for error in form.amendment_reason.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+                    {% for error in form.branch_second_recommended_by_name.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+                    {% for error in form.branch_second_recommended_by_designation.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+                    {% for error in form.branch_second_recommended_by_date.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+                    {% for error in form.endorsement.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+
+                    <div class="cbs-workflow-panel">
+                        <div class="fw-bold mb-2">Digital Sign-Off Chain</div>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold" for="{{ form.recommender.id_for_label }}">{{ form.recommender.label }}</label>
+                                {{ form.recommender }}
+                                {% if form.recommender.help_text %}<div class="form-text">{{ form.recommender.help_text }}</div>{% endif %}
+                                {% for error in form.recommender.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+                            </div>
+                            {% if cbs_office_type == "branch" %}
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold" for="{{ form.second_recommender.id_for_label }}">{{ form.second_recommender.label }}</label>
+                                {{ form.second_recommender }}
+                                {% if form.second_recommender.help_text %}<div class="form-text">{{ form.second_recommender.help_text }}</div>{% endif %}
+                                {% for error in form.second_recommender.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+                            </div>
+                            {% else %}
+                                {{ form.second_recommender }}
+                            {% endif %}
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold" for="{{ form.approver.id_for_label }}">{{ form.approver.label }}</label>
+                                {{ form.approver }}
+                                {% if form.approver.help_text %}<div class="form-text">{{ form.approver.help_text }}</div>{% endif %}
+                                {% for error in form.approver.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="d-flex flex-wrap justify-content-end gap-2 mt-3">
+                        {% if cbs_form_mode == "correct" and cbs_form_ticket %}
+                            <a href="{% url 'ticket_detail' cbs_form_ticket.id %}" class="btn btn-outline-secondary">Cancel</a>
+                        {% else %}
+                            <a href="{% url 'ticket_list' %}" class="btn btn-outline-secondary">Cancel</a>
+                        {% endif %}
+                        <button type="submit" name="action" value="download_pdf" class="btn btn-outline-primary" data-submitting-text="Preparing PDF...">Download Filled PDF</button>
+                        <button type="submit" name="action" value="submit" class="btn btn-primary" data-submitting-text="Submitting...">{% if cbs_form_mode == "correct" %}Resubmit for Approval{% else %}Submit Request{% endif %}</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    (function () {
+        const formEl = document.querySelector("form[data-prevent-double-submit]");
+        if (!formEl) {
+            return;
+        }
+        formEl.addEventListener("submit", function (event) {
+            if (event.submitter && event.submitter.value === "download") {
+                return;
+            }
+            if (formEl.dataset.submitting === "true") {
+                event.preventDefault();
+                return;
+            }
+            formEl.dataset.submitting = "true";
+            formEl.querySelectorAll('button[type="submit"]').forEach(function (button) {
+                const nextLabel = button.getAttribute("data-submitting-text");
+                button.disabled = true;
+                if (nextLabel && button === event.submitter) {
+                    button.textContent = nextLabel;
+                }
+            });
+        });
+    })();
+</script>
+{% endblock %}

@@ -7,7 +7,7 @@
     <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
         <div>
             <h3 class="mb-0 fw-bold">Upload Technical Documents</h3>
-            <div class="ticket-meta mt-1">Upload one or more PDF files</div>
+            <div class="ticket-meta mt-1">Upload one or more PDF or Excel files</div>
         </div>
         <a href="{% url 'tech_docs' %}" class="btn btn-outline-secondary">Back</a>
     </div>
@@ -18,30 +18,54 @@
         <form method="post" enctype="multipart/form-data">
             {% csrf_token %}
             <div class="mb-3">
-                <label class="form-label fw-bold" for="id_files">PDF files</label>
+                <label class="form-label fw-bold" for="id_files">Document files</label>
                 <input
                     type="file"
                     name="files"
                     id="id_files"
                     class="form-control"
                     multiple
-                    accept=".pdf,application/pdf"
+                    accept=".pdf,.xls,.xlsx,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     required
                 >
-                <div class="form-text">Select one or more PDF files.</div>
+                <div class="form-text">Select one or more PDF or Excel files.</div>
             </div>
 
             <div class="row g-3 mb-3">
                 <div class="col-12 col-lg-4">
                     <label class="form-label fw-bold" for="id_visibility">Visibility</label>
                     <select name="visibility" id="id_visibility" class="form-select">
-                        <option value="public" selected>All users</option>
-                        <option value="restricted">Restricted (selected users)</option>
-                        <option value="support_only">IT Support only</option>
+                        {% for value, label in doc_visibility_choices %}
+                            <option value="{{ value }}" {% if tech_doc_form.visibility == value %}selected{% endif %}>
+                                {% if value == "restricted" %}
+                                    Restricted (selected users)
+                                {% else %}
+                                    {{ label }}
+                                {% endif %}
+                            </option>
+                        {% endfor %}
                     </select>
                     <div class="form-text">Controls who can see the document in the Documentation page.</div>
                 </div>
-                <div class="col-12 col-lg-8" id="allowed-users-wrap" style="display:none;">
+                <div class="col-12 col-lg-4" id="department-wrap" style="display:none;">
+                    <label class="form-label fw-bold" for="id_departments">Departments</label>
+                    <select name="departments" id="id_departments" class="form-select" multiple size="6">
+                        {% for value, label in tech_doc_department_options %}
+                            <option value="{{ value }}" {% if value in tech_doc_form.departments %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                    <div class="form-text">Choose one or more departments. Required when Visibility is Department.</div>
+                </div>
+                <div class="col-12 col-lg-4" id="branch-wrap" style="display:none;">
+                    <label class="form-label fw-bold" for="id_branches">Branches</label>
+                    <select name="branches" id="id_branches" class="form-select" multiple size="6">
+                        {% for value, label in tech_doc_branch_options %}
+                            <option value="{{ value }}" {% if value in tech_doc_form.branches %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                    <div class="form-text">Optional. Choose one or more branches, or leave it empty to show the document in all branches.</div>
+                </div>
+                <div class="col-12" id="allowed-users-wrap" style="display:none;">
                     <label class="form-label fw-bold" for="id_allowed_users">Allowed users</label>
                     <textarea
                         name="allowed_users"
@@ -49,13 +73,13 @@
                         class="form-control"
                         rows="3"
                         placeholder="Enter usernames or emails (comma or new-line separated)"
-                    ></textarea>
+                    >{{ tech_doc_form.allowed_users }}</textarea>
                     <div class="form-text">Used only when Visibility is Restricted.</div>
                 </div>
             </div>
 
             <div id="title-fields" class="d-grid gap-2">
-                <div class="text-muted small">Select PDF files above to set the title and details for each document.</div>
+                <div class="text-muted small">Select document files above to set the title and details for each document.</div>
             </div>
 
             <div class="d-flex justify-content-end gap-2 mt-3">
@@ -74,16 +98,39 @@
         const container = document.getElementById("title-fields");
         const visibility = document.getElementById("id_visibility");
         const allowedWrap = document.getElementById("allowed-users-wrap");
+        const allowedUsers = document.getElementById("id_allowed_users");
+        const branchWrap = document.getElementById("branch-wrap");
+        const branchSelect = document.getElementById("id_branches");
+        const departmentWrap = document.getElementById("department-wrap");
+        const departmentSelect = document.getElementById("id_departments");
         if (!fileInput || !container) return;
 
-        function updateAllowedVisibility() {
-            if (!visibility || !allowedWrap) return;
-            allowedWrap.style.display = visibility.value === "restricted" ? "" : "none";
+        function updateVisibilityFields() {
+            if (!visibility) return;
+            const currentVisibility = visibility.value;
+            if (allowedWrap) {
+                allowedWrap.style.display = currentVisibility === "restricted" ? "" : "none";
+            }
+            if (allowedUsers) {
+                allowedUsers.required = currentVisibility === "restricted";
+            }
+            if (departmentWrap) {
+                departmentWrap.style.display = currentVisibility === "department" ? "" : "none";
+            }
+            if (departmentSelect) {
+                departmentSelect.required = currentVisibility === "department";
+            }
+            if (branchWrap) {
+                branchWrap.style.display = currentVisibility === "branch" || currentVisibility === "department" ? "" : "none";
+            }
+            if (branchSelect && currentVisibility !== "branch" && currentVisibility !== "department") {
+                branchSelect.required = false;
+            }
         }
 
         function makeDefaultTitle(filename) {
             const base = (filename || "").split(/[/\\\\]/).pop() || "";
-            return base.replace(/\\.pdf$/i, "") || base;
+            return base.replace(/\\.(pdf|xlsx|xls)$/i, "") || base;
         }
 
         function clear() {
@@ -141,7 +188,7 @@
             if (!files.length) {
                 const hint = document.createElement("div");
                 hint.className = "text-muted small";
-                hint.textContent = "Select PDF files above to set the title and details for each document.";
+                hint.textContent = "Select document files above to set the title and details for each document.";
                 container.appendChild(hint);
                 return;
             }
@@ -159,8 +206,8 @@
         fileInput.addEventListener("change", render);
         render();
         if (visibility) {
-            visibility.addEventListener("change", updateAllowedVisibility);
-            updateAllowedVisibility();
+            visibility.addEventListener("change", updateVisibilityFields);
+            updateVisibilityFields();
         }
     })();
 </script>

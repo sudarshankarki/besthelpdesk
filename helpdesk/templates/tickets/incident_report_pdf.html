@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>Incident Report</title>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            font-family: Inter, "Segoe UI", Arial, sans-serif;
+            color: #0b1722;
+            background: #ffffff;
+        }
+        body {
+            padding: 18px;
+        }
+        .surface {
+            background: #ffffff;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            box-shadow: none;
+        }
+        .p-3 { padding: 16px; }
+        .mb-3 { margin-bottom: 16px; }
+        .table-responsive { overflow-x: auto; }
+        .bfc-incident-template {
+            width: 100%;
+            border-collapse: collapse;
+            border: 1px solid #7c7c7c;
+            table-layout: fixed;
+            font-size: 12px;
+        }
+        .bfc-incident-template td {
+            border: 1px solid #7c7c7c;
+            padding: 10px;
+            vertical-align: top;
+        }
+        .bfc-template-title,
+        .bfc-company-title {
+            text-align: center;
+            font-weight: 700;
+            padding: 14px 10px;
+        }
+        .bfc-template-title {
+            font-size: 1.1rem;
+        }
+        .bfc-company-title {
+            font-size: 0.95rem;
+        }
+        .bfc-section-row {
+            background: #f4f7fb;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            padding: 10px;
+        }
+        .bfc-label {
+            font-weight: 700;
+            width: 24%;
+            white-space: nowrap;
+        }
+        .bfc-severity-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 6px;
+            margin-top: 8px;
+            font-size: 0.75rem;
+        }
+        .bfc-severity-grid span {
+            padding: 6px 8px;
+            border-radius: 4px;
+            background: #eef2ff;
+            text-align: center;
+        }
+        input,
+        select,
+        textarea {
+            display: block;
+            width: 100%;
+            min-width: 0;
+            box-sizing: border-box;
+            border: 1px solid #d1d5db;
+            border-radius: 4px;
+            padding: 8px;
+            font-family: inherit;
+            font-size: 12px;
+            color: #111827;
+            background: transparent;
+        }
+        textarea { min-height: 4.5em; }
+        select { background: #ffffff; }
+    </style>
+</head>
+<body>
+    <div class="surface p-3 mb-3">
+        <div class="table-responsive">
+            <table class="bfc-incident-template">
+                <colgroup>
+                    <col style="width: 24%;">
+                    <col style="width: 26%;">
+                    <col style="width: 24%;">
+                    <col style="width: 26%;">
+                </colgroup>
+                <tr><td colspan="4" class="bfc-template-title">Incident Report Template</td></tr>
+                <tr><td colspan="4" class="bfc-company-title">Best Finance Company Ltd.</td></tr>
+                <tr>
+                    <td class="bfc-label">Version</td>
+                    <td>1.0</td>
+                    <td class="bfc-label">Date</td>
+                    <td>&nbsp;</td>
+                </tr>
+                <tr><td colspan="4" class="bfc-section-row">INCIDENT REPORT INFORMATION</td></tr>
+                <tr><td colspan="4" class="bfc-section-row">BREACH REPORTING EMPLOYEE'S INFORMATION</td></tr>
+                <tr>
+                    <td class="bfc-label">Reporting Employee's Name:</td>
+                    <td>{{ form.reporting_employee_name }}</td>
+                    <td class="bfc-label">Designation:</td>
+                    <td>{{ form.reporting_employee_designation }}</td>
+                </tr>
+                <tr>
+                    <td class="bfc-label">Email:</td>
+                    <td>{{ form.reporting_employee_email }}</td>
+                    <td class="bfc-label">Contact Number:</td>
+                    <td>{{ form.reporting_employee_contact }}</td>
+                </tr>
+                <tr><td class="bfc-label">Date of Report:</td><td colspan="3">{{ form.date_of_report }}</td></tr>
+                <tr><td colspan="4" class="bfc-section-row">INCIDENT DETAILS</td></tr>
+                <tr>
+                    <td class="bfc-label">Incident ID:</td>
+                    <td>{{ form.incident_id }}</td>
+                    <td class="bfc-label">Date &amp; Time of Occurrence:</td>
+                    <td>{{ form.date_time_of_occurrence }}</td>
+                </tr>
+                <tr>
+                    <td class="bfc-label">Date &amp; Time of Detection:</td>
+                    <td>{{ form.date_time_of_detection }}</td>
+                    <td class="bfc-label">Source of Incident:</td>
+                    <td>{{ form.source_of_incident }}</td>
+                </tr>
+                <tr><td class="bfc-label">Incident Location (IP):</td><td colspan="3">{{ form.incident_location_ip }}</td></tr>
+                <tr><td class="bfc-label">Incident Description:</td><td colspan="3">{{ form.incident_description }}</td></tr>
+                <tr><td colspan="4" class="bfc-section-row">IMPACT ASSESSMENT</td></tr>
+                <tr><td class="bfc-label">Unit or Department Impacted:</td><td colspan="3">{{ form.unit_or_department_impacted }}</td></tr>
+                <tr><td class="bfc-label">System(s) Impacted:</td><td colspan="3">{{ form.systems_impacted }}</td></tr>
+                <tr><td class="bfc-label">Network Impacted:</td><td colspan="3">{{ form.network_impacted }}</td></tr>
+                <tr><td class="bfc-label">Operations Impacted:</td><td colspan="3">{{ form.operations_impacted }}</td></tr>
+                <tr>
+                    <td class="bfc-label">Incident Severity:</td>
+                    <td colspan="3">
+                        {{ form.severity_choice }}
+                        <div class="bfc-severity-grid">
+                            <span>Critical</span><span>High</span><span>Medium</span><span>Low</span>
+                        </div>
+                    </td>
+                </tr>
+                <tr><td colspan="4" class="bfc-section-row">INCIDENT RECOVERY DETAILS</td></tr>
+                <tr><td class="bfc-label">Recovery Actions:</td><td colspan="3">{{ form.recovery_actions }}</td></tr>
+                <tr><td class="bfc-label">Recovery Timeframe:</td><td colspan="3">{{ form.recovery_timeframe }}</td></tr>
+                <tr><td class="bfc-label">Post Recovery Verification:</td><td colspan="3">{{ form.post_recovery_verification }}</td></tr>
+                <tr><td class="bfc-label">Communication:</td><td colspan="3">{{ form.recovery_communication }}</td></tr>
+                <tr><td colspan="4" class="bfc-section-row">INCIDENT RESPONSE DETAILS</td></tr>
+                <tr><td class="bfc-label">Quarantine Process:</td><td colspan="3">{{ form.quarantine_process }}</td></tr>
+                <tr><td class="bfc-label">Immediate Actions:</td><td colspan="3">{{ form.immediate_actions }}</td></tr>
+                <tr><td class="bfc-label">Root Cause Analysis:</td><td colspan="3">{{ form.root_cause_analysis }}</td></tr>
+                <tr><td class="bfc-label">Eradication:</td><td colspan="3">{{ form.eradication_method }}</td></tr>
+                <tr><td class="bfc-label">Lessons Learned:</td><td colspan="3">{{ form.lessons_learned }}</td></tr>
+                <tr><td class="bfc-label">Recommendations for Improvement:</td><td colspan="3">{{ form.recommendations_for_improvement }}</td></tr>
+                <tr><td class="bfc-label">Action Plan:</td><td colspan="3">{{ form.action_plan }}</td></tr>
+                <tr><td colspan="4" class="bfc-section-row">INCIDENT INFORMATION SHARING</td></tr>
+                <tr><td class="bfc-label">Unit or Department Requiring Notification:</td><td colspan="3">{{ form.unit_or_department_requiring_notification }}</td></tr>
+                <tr><td class="bfc-label">Point of Contact:</td><td colspan="3">{{ form.point_of_contact }}</td></tr>
+                <tr><td class="bfc-label">Date of Notification:</td><td colspan="3">{{ form.date_of_notification }}</td></tr>
+                <tr><td colspan="4" class="bfc-section-row">ATTACHMENTS (IF APPLICABLE)</td></tr>
+                <tr><td colspan="4">{{ form.evidence_attachments }}</td></tr>
+            </table>
+        </div>
+    </div>
+</body>
+</html>

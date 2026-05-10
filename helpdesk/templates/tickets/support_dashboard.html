@@ -16,7 +16,11 @@
             </div>
         </div>
         <div class="d-flex flex-wrap gap-2 align-items-center">
-            <span class="badge-soft chip-muted">Assigned to me: {{ my_assigned_tickets }}</span>
+            <span class="badge-soft chip-muted">My workload: {{ my_workload_tickets }}</span>
+            <a class="btn btn-sm btn-outline-secondary" href="{% url 'support_users' %}">Users</a>
+            <a class="btn btn-sm btn-outline-secondary" href="{{ support_incident_url }}">Incidents</a>
+            <a class="btn btn-sm btn-outline-secondary" href="{{ support_cbs_access_url }}">CBS Access</a>
+            <a class="btn btn-sm btn-outline-primary" href="{% url 'portal_flash_upload' %}">Upload Login Flash</a>
             <a class="btn btn-sm btn-primary" href="{{ support_queue_url }}">Open Queue</a>
         </div>
     </div>
@@ -65,6 +69,24 @@
             >
         </div>
         <div>
+            <label for="dashboard-department" class="form-label form-label-sm mb-1">Department</label>
+            <select id="dashboard-department" name="department" class="form-select form-select-sm" style="min-width: 160px;">
+                <option value="">All Departments</option>
+                {% for department_name in support_department_options %}
+                    <option value="{{ department_name }}" {% if selected_department == department_name %}selected{% endif %}>{{ department_name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label for="dashboard-branch" class="form-label form-label-sm mb-1">Branch</label>
+            <select id="dashboard-branch" name="branch" class="form-select form-select-sm" style="min-width: 160px;">
+                <option value="">All Branches</option>
+                {% for branch_name in support_branch_options %}
+                    <option value="{{ branch_name }}" {% if selected_branch == branch_name %}selected{% endif %}>{{ branch_name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
             <label for="dashboard-date-from" class="form-label form-label-sm mb-1">Date From</label>
             <input
                 id="dashboard-date-from"
@@ -96,6 +118,16 @@
                 <option value="resolved" {% if selected_status == "resolved" %}selected{% endif %}>Resolved</option>
                 <option value="closed" {% if selected_status == "closed" %}selected{% endif %}>Closed</option>
                 <option value="cancelled_duplicate" {% if selected_status == "cancelled_duplicate" %}selected{% endif %}>Cancelled / Duplicate</option>
+            </select>
+        </div>
+        <div>
+            <label for="dashboard-priority" class="form-label form-label-sm mb-1">Priority</label>
+            <select id="dashboard-priority" name="priority" class="form-select form-select-sm" style="min-width: 140px;">
+                <option value="">All Priorities</option>
+                <option value="low" {% if selected_priority == "low" %}selected{% endif %}>Low</option>
+                <option value="medium" {% if selected_priority == "medium" %}selected{% endif %}>Medium</option>
+                <option value="high" {% if selected_priority == "high" %}selected{% endif %}>High</option>
+                <option value="critical" {% if selected_priority == "critical" %}selected{% endif %}>Critical</option>
             </select>
         </div>
         <div class="d-flex gap-2">
@@ -163,11 +195,33 @@
             </a>
         </div>
         <div class="col-6 col-lg-2">
+            <a class="text-decoration-none" href="{{ support_incident_url }}">
+                <div class="surface p-2 ticket-card ticket-accent-critical">
+                    <div class="ticket-meta">Incident Tickets</div>
+                    <div class="d-flex justify-content-between align-items-end">
+                        <div class="h4 fw-bold mb-0">{{ incident_tickets }}</div>
+                        <span class="badge-soft chip-danger">Incidents</span>
+                    </div>
+                </div>
+            </a>
+        </div>
+        <div class="col-6 col-lg-2">
+            <a class="text-decoration-none" href="{{ support_cbs_access_url }}">
+                <div class="surface p-2 ticket-card ticket-accent-acknowledged">
+                    <div class="ticket-meta">CBS Access</div>
+                    <div class="d-flex justify-content-between align-items-end">
+                        <div class="h4 fw-bold mb-0">{{ cbs_access_tickets }}</div>
+                        <span class="badge-soft chip-primary">Access</span>
+                    </div>
+                </div>
+            </a>
+        </div>
+        <div class="col-6 col-lg-2">
             <div class="surface p-2 ticket-card">
-                <div class="ticket-meta">{% if has_active_filters %}Matching Tickets{% else %}All Tickets{% endif %}</div>
+                <div class="ticket-meta">{% if has_active_filters %}Matching Service{% else %}Service Requests{% endif %}</div>
                 <div class="d-flex justify-content-between align-items-end">
                     <div class="h4 fw-bold mb-0">{{ total_tickets }}</div>
-                    <span class="badge-soft chip-muted">{% if has_active_filters %}Filtered{% else %}All{% endif %}</span>
+                    <span class="badge-soft chip-muted">{% if has_active_filters %}Filtered{% else %}Service{% endif %}</span>
                 </div>
             </div>
         </div>
@@ -194,7 +248,7 @@
                     </thead>
                     <tbody>
                         {% for ticket in recent_tickets %}
-                            <tr data-ticket-id="{{ ticket.id }}">
+                            <tr data-ticket-id="{{ ticket.id }}" class="{% if ticket.overdue_attention_level %}ticket-overdue-{{ ticket.overdue_attention_level }}{% endif %}">
                                 <td>
                                     <div class="d-flex flex-column">
                                         <div class="d-flex flex-wrap align-items-center gap-2">
@@ -203,6 +257,11 @@
                                                 {{ ticket.subject }}
                                             </a>
                                             <span class="badge-soft chip-muted ticket-id">{{ ticket.ticket_id }}</span>
+                                            {% if ticket.overdue_attention_level %}
+                                                <span class="ticket-overdue-badge ticket-overdue-{{ ticket.overdue_attention_level }}">
+                                                    {{ ticket.overdue_attention_label }}
+                                                </span>
+                                            {% endif %}
                                         </div>
                                         <div class="ticket-meta mt-1">
                                             <span>By {{ ticket.created_by.username }}</span>
@@ -223,7 +282,7 @@
                                         </div>
                                     </div>
                                 </td>
-                                <td class="d-none d-xl-table-cell">{{ ticket.assigned_to|default:"Unassigned" }}</td>
+                                <td class="d-none d-xl-table-cell">{{ ticket.display_assignee|default:"Unassigned" }}</td>
                                 <td>
                                     <span class="badge-soft {% if ticket.status == 'resolved' %}chip-success{% elif ticket.status == 'new' or ticket.status == 'open' %}chip-primary{% elif ticket.status == 'acknowledged' %}chip-primary{% elif ticket.status == 'in_progress' or ticket.status == 'waiting_on_user' or ticket.status == 'waiting_on_third_party' %}chip-warning{% elif ticket.status == 'closed' %}chip-danger{% else %}chip-muted{% endif %}">
                                         {{ ticket.get_status_display }}
@@ -235,7 +294,15 @@
                                     </span>
                                 </td>
                                 <td class="text-end table-actions-cell" style="width: 1%; white-space: nowrap;">
-                                    <div class="table-actions" style="display: inline-flex; justify-content: flex-end; gap: 0.5rem; min-width: 9.5rem;">
+                                    <div class="table-actions" style="display: inline-flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.5rem; min-width: 14rem;">
+                                        {% if not ticket.chat_is_private or ticket.created_by_id == user.id or ticket.assigned_to_id == user.id %}
+                                            <a class="btn btn-sm btn-outline-secondary" style="white-space: nowrap;" href="{% url 'ticket_detail' ticket.id %}#ticket-chat">Chat</a>
+                                            {% if ticket.status == "closed" %}
+                                                <span class="btn btn-sm btn-outline-secondary disabled" aria-disabled="true">Call</span>
+                                            {% else %}
+                                                <a class="btn btn-sm btn-outline-primary" style="white-space: nowrap;" href="{% url 'ticket_detail' ticket.id %}?autocall=1&callmode=start#ticket-chat">Call</a>
+                                            {% endif %}
+                                        {% endif %}
                                         <a class="btn btn-sm btn-outline-secondary" style="white-space: nowrap;" href="{% url 'ticket_detail' ticket.id %}">View</a>
                                         <a class="btn btn-sm btn-primary" style="white-space: nowrap;" href="{% url 'ticket_update' ticket.id %}">Manage</a>
                                     </div>
@@ -253,7 +320,7 @@
         <div class="surface p-3">
             <div class="d-flex justify-content-between align-items-center mb-2">
                 <h5 class="fw-bold mb-0">Agent Workload</h5>
-                <span class="badge-soft chip-muted">Top 5</span>
+                <span class="badge-soft chip-muted">Current assignee + resolved owner</span>
             </div>
             {% for item in agent_workload %}
                 <a class="d-flex justify-content-between align-items-center py-2 border-bottom text-decoration-none text-reset" href="{{ item.queue_url }}">
