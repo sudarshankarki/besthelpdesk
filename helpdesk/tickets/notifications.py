@@ -20,19 +20,27 @@ def get_chat_notification_target_ids(ticket, sender_user_id):
     return get_ticket_chat_access_user_ids(ticket, sender_user_id)
 
 
-def build_call_notification_payload(ticket, caller):
+def build_call_notification_payload(ticket, caller, target_user_id=None):
     caller_name = caller.get_full_name().strip() or caller.username
     ticket_url = reverse("ticket_detail", args=[ticket.id])
+    answer_url = f"{ticket_url}?autocall=1&callmode=answer#ticket-chat"
+    if getattr(caller, "id", None):
+        answer_url = f"{ticket_url}?autocall=1&callmode=answer&callpeer={caller.id}#ticket-chat"
+    if target_user_id:
+        separator = "&" if "?" in answer_url else "?"
+        answer_url = answer_url.replace("#ticket-chat", f"{separator}calltarget={target_user_id}#ticket-chat")
     return {
         "kind": "incoming_call",
         "level": "warning",
         "title": "Incoming audio call",
         "message": f"{caller_name} is calling on ticket {ticket.ticket_id}: {ticket.subject}",
         "url": ticket_url,
-        "answer_url": f"{ticket_url}?autocall=1&callmode=answer#ticket-chat",
+        "answer_url": answer_url,
         "ticket_id": ticket.id,
         "ticket_code": ticket.ticket_id,
         "caller": caller.username,
+        "caller_user_id": getattr(caller, "id", None),
+        "target_user_id": target_user_id,
         "delay": 20000,
     }
 

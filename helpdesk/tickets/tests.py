@@ -6,6 +6,7 @@ from datetime import timedelta
 from io import BytesIO, StringIO
 from urllib.parse import urlparse
 from unittest.mock import Mock, patch
+import xml.etree.ElementTree as ET
 import zipfile
 
 from django.contrib.auth import get_user_model
@@ -20,7 +21,7 @@ from django.utils import timezone
 from django.urls import reverse
 
 from accounts.models import AuthenticationSettings, Branch, Department
-from .forms import TicketForm
+from .forms import CBSAccessRequestForm, TicketForm
 from .models import (
     GroupMailboxEmail,
     IncidentReport,
@@ -146,6 +147,7 @@ class PruneTicketMessagesCommandTests(TestCase):
         self.ticket = Ticket.objects.create(
             created_by=self.user,
             subject="Retention Test",
+            request_type="service",
             description="Testing message retention command",
             priority="low",
             status="new",
@@ -189,6 +191,32 @@ class PruneTicketMessagesCommandTests(TestCase):
 
         remaining_ids = set(TicketMessage.objects.values_list("id", flat=True))
         self.assertSetEqual(remaining_ids, {new_message.id})
+
+    def test_command_never_deletes_incident_or_cbs_access_messages(self):
+        incident_ticket = Ticket.objects.create(
+            created_by=self.user,
+            subject="Old incident",
+            request_type="incident",
+            description="Incident messages must stay",
+            status="closed",
+        )
+        cbs_ticket = Ticket.objects.create(
+            created_by=self.user,
+            subject="Old CBS access",
+            request_type="cbs_access_branch",
+            description="CBS access messages must stay",
+            status="closed",
+        )
+        incident_message = TicketMessage.objects.create(ticket=incident_ticket, author=self.user, body="incident")
+        cbs_message = TicketMessage.objects.create(ticket=cbs_ticket, author=self.user, body="cbs")
+        TicketMessage.objects.filter(pk__in=[incident_message.pk, cbs_message.pk]).update(
+            created_at=timezone.now() - timedelta(days=200)
+        )
+
+        call_command("prune_ticket_messages", "--days", "180")
+
+        self.assertTrue(TicketMessage.objects.filter(pk=incident_message.pk).exists())
+        self.assertTrue(TicketMessage.objects.filter(pk=cbs_message.pk).exists())
 
 
 class TicketCloseKeepsMessagesTests(TestCase):
@@ -246,6 +274,7 @@ class PurgeClosedTicketConversationsCommandTests(TestCase):
         old_ticket = Ticket.objects.create(
             created_by=user,
             subject="Old closed ticket",
+            request_type="service",
             description="Should be purged after retention window",
             priority="low",
             status="closed",
@@ -253,6 +282,7 @@ class PurgeClosedTicketConversationsCommandTests(TestCase):
         recent_ticket = Ticket.objects.create(
             created_by=user,
             subject="Recent closed ticket",
+            request_type="service",
             description="Should not be purged yet",
             priority="low",
             status="closed",
@@ -267,6 +297,38 @@ class PurgeClosedTicketConversationsCommandTests(TestCase):
         self.assertEqual(TicketMessage.objects.filter(ticket=old_ticket).count(), 0)
         self.assertEqual(TicketMessage.objects.filter(ticket=recent_ticket).count(), 1)
 
+    def test_closed_incident_and_cbs_access_tickets_never_get_purged(self):
+        user = get_user_model().objects.create_user(
+            username="closed_special_retention_user",
+            password="testpass123",
+        )
+        incident_ticket = Ticket.objects.create(
+            created_by=user,
+            subject="Old closed incident",
+            request_type="incident",
+            description="Should never be purged",
+            priority="low",
+            status="closed",
+        )
+        cbs_ticket = Ticket.objects.create(
+            created_by=user,
+            subject="Old closed CBS",
+            request_type="cbs_access_ho",
+            description="Should never be purged",
+            priority="low",
+            status="closed",
+        )
+        Ticket.objects.filter(pk__in=[incident_ticket.pk, cbs_ticket.pk]).update(
+            closed_at=timezone.now() - timedelta(days=30)
+        )
+        TicketMessage.objects.create(ticket=incident_ticket, author=user, body="incident message")
+        TicketMessage.objects.create(ticket=cbs_ticket, author=user, body="cbs message")
+
+        call_command("purge_closed_ticket_conversations", "--days", "10")
+
+        self.assertEqual(TicketMessage.objects.filter(ticket=incident_ticket).count(), 1)
+        self.assertEqual(TicketMessage.objects.filter(ticket=cbs_ticket).count(), 1)
+
 
 class PruneOpenTicketConversationsCommandTests(TestCase):
     def test_open_ticket_older_than_cutoff_gets_purged(self):
@@ -277,6 +339,7 @@ class PruneOpenTicketConversationsCommandTests(TestCase):
         ticket = Ticket.objects.create(
             created_by=user,
             subject="Open retention test",
+            request_type="service",
             description="Testing open ticket conversation retention",
             priority="low",
             status="new",
@@ -287,6 +350,38 @@ class PruneOpenTicketConversationsCommandTests(TestCase):
         call_command("prune_open_ticket_conversations", "--days", "10")
 
         self.assertEqual(TicketMessage.objects.filter(ticket=ticket).count(), 0)
+
+    def test_open_incident_and_cbs_access_tickets_never_get_purged(self):
+        user = get_user_model().objects.create_user(
+            username="open_special_retention_user",
+            password="testpass123",
+        )
+        incident_ticket = Ticket.objects.create(
+            created_by=user,
+            subject="Old open incident",
+            request_type="incident",
+            description="Should never be purged",
+            priority="low",
+            status="new",
+        )
+        cbs_ticket = Ticket.objects.create(
+            created_by=user,
+            subject="Old open CBS",
+            request_type="cbs_access_branch",
+            description="Should never be purged",
+            priority="low",
+            status="new",
+        )
+        Ticket.objects.filter(pk__in=[incident_ticket.pk, cbs_ticket.pk]).update(
+            created_at=timezone.now() - timedelta(days=30)
+        )
+        TicketMessage.objects.create(ticket=incident_ticket, author=user, body="incident message")
+        TicketMessage.objects.create(ticket=cbs_ticket, author=user, body="cbs message")
+
+        call_command("prune_open_ticket_conversations", "--days", "10")
+
+        self.assertEqual(TicketMessage.objects.filter(ticket=incident_ticket).count(), 1)
+        self.assertEqual(TicketMessage.objects.filter(ticket=cbs_ticket).count(), 1)
 
 class TicketAdminReportTests(TestCase):
     def test_admin_report_download_csv(self):
@@ -419,14 +514,24 @@ class TicketCallNotificationTests(TestCase):
         self.assertEqual(payload["url"], reverse("ticket_detail", args=[self.ticket.id]))
         self.assertEqual(
             payload["answer_url"],
-            f'{reverse("ticket_detail", args=[self.ticket.id])}?autocall=1&callmode=answer#ticket-chat',
+            f'{reverse("ticket_detail", args=[self.ticket.id])}?autocall=1&callmode=answer&callpeer={self.requester.id}#ticket-chat',
         )
         self.assertEqual(payload["ticket_id"], self.ticket.id)
         self.assertEqual(payload["ticket_code"], self.ticket.ticket_id)
         self.assertEqual(payload["caller"], self.requester.username)
+        self.assertEqual(payload["caller_user_id"], self.requester.id)
         self.assertEqual(payload["delay"], 20000)
         self.assertIn("Ram", payload["message"])
         self.assertIn(self.ticket.ticket_id, payload["message"])
+
+    def test_call_notification_payload_can_include_targeted_recipient(self):
+        payload = build_call_notification_payload(self.ticket, self.requester, self.assignee.id)
+
+        self.assertEqual(payload["target_user_id"], self.assignee.id)
+        self.assertEqual(
+            payload["answer_url"],
+            f'{reverse("ticket_detail", args=[self.ticket.id])}?autocall=1&callmode=answer&callpeer={self.requester.id}&calltarget={self.assignee.id}#ticket-chat',
+        )
 
 
 class TicketChatNotificationTests(TestCase):
@@ -1408,6 +1513,40 @@ class CreateTicketRoutingTests(TestCase):
             html=True,
         )
 
+    def test_create_ticket_cbs_scope_shows_only_cbs_request_types(self):
+        response = self.client.get(f"{reverse('create_ticket')}?ticket_scope=cbs_access")
+
+        self.assertEqual(response.status_code, 200)
+        request_type_choices = list(response.context["form"].fields["request_type"].choices)
+        self.assertEqual(
+            request_type_choices,
+            [
+                ("", "Select CBS access request type"),
+                ("cbs_access_ho", "CBS Access Request (Head Office)"),
+                ("cbs_access_branch", "CBS Access Request (Branch)"),
+            ],
+        )
+        self.assertNotContains(response, '<option value="service"', html=False)
+        self.assertNotContains(response, '<option value="incident"', html=False)
+
+    def test_cbs_filtered_ticket_list_new_ticket_opens_cbs_scoped_create_form(self):
+        response = self.client.get(f"{reverse('ticket_list')}?request_type=cbs_access")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f"{reverse('create_ticket')}?ticket_scope=cbs_access")
+
+    def test_create_ticket_cbs_scope_posts_redirect_to_cbs_form(self):
+        response = self.client.post(
+            reverse("create_ticket"),
+            data={
+                **self._ticket_payload(request_type="cbs_access_branch"),
+                "ticket_scope": "cbs_access",
+            },
+        )
+
+        self.assertRedirects(response, reverse("cbs_access_branch_request"), fetch_redirect_response=False)
+        self.assertFalse(Ticket.objects.filter(subject="Create ticket routing").exists())
+
     def test_create_ticket_assigns_person_and_notifies_group_mailbox(self):
         dept, _created = Department.objects.update_or_create(name="HR", defaults={})
         GroupMailboxEmail.objects.update_or_create(
@@ -1513,6 +1652,8 @@ class CreateTicketRoutingTests(TestCase):
             )
             self.assertIn('INC-2026-001', document_xml)
             self.assertIn('Alice', document_xml)
+            self.assertIn("Shared Confidential", package_xml)
+            self.assertIn("INC-2026-001", package_xml)
             self.assertIn('System(s) Impacted:', document_xml)
             self.assertIn('Network Impacted:', document_xml)
             self.assertNotIn('☑', document_xml)
@@ -1914,6 +2055,8 @@ class RemoteAccessRequestViewTests(TestCase):
             username="remote_access_user",
             email="remote_access_user@bestfinance.com.np",
             password="testpass123",
+            first_name="Branch",
+            last_name="User",
             branch="Kathmandu",
         )
         self.recommender = get_user_model().objects.create_user(
@@ -1942,6 +2085,12 @@ class RemoteAccessRequestViewTests(TestCase):
             email="remote_access_other@bestfinance.com.np",
             password="testpass123",
             branch="Pokhara",
+        )
+        self.central_operation_user = get_user_model().objects.create_user(
+            username="central_operation",
+            email="central_operation@bestfinance.com.np",
+            password="testpass123",
+            is_central_operation=True,
         )
         self.client.force_login(self.user)
 
@@ -1993,6 +2142,7 @@ class RemoteAccessRequestViewTests(TestCase):
             "recommender": str(self.recommender.id),
             "second_recommender": str(self.second_recommender.id),
             "approver": str(self.approver.id),
+            "post_approval_assigned_to": str(self.other_user.id),
             "requested_by_name": "Branch User",
             "requested_by_designation": "Officer",
             "requested_by_date": "2026-05-06",
@@ -2038,15 +2188,196 @@ class RemoteAccessRequestViewTests(TestCase):
         self.assertContains(response, 'name="submission_token"')
 
     def test_cbs_branch_access_request_page_renders_branch_format(self):
+        Branch.objects.get_or_create(branch_id="KTM", defaults={"name": "Kathmandu"})
         response = self.client.get(reverse("cbs_access_branch_request"))
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "For Branch Office Only")
+        self.assertContains(response, 'name="department" value="KTM - Kathmandu"', html=False)
+        self.assertContains(response, 'name="attachments"', html=False)
+        self.assertContains(response, 'enctype="multipart/form-data"', html=False)
         self.assertContains(response, "Customer Service Desk")
         self.assertContains(response, "Operation In charge")
         self.assertContains(response, "Branch Manager")
+        self.assertContains(response, "Assign To After Approval (CBS ACCESS PROVIDER)")
         self.assertContains(response, "Second Digital Recommended By")
         self.assertNotContains(response, "Internal Audit Dept.")
+
+    @patch("tickets.views._store_ticket_attachments")
+    def test_cbs_access_request_stores_uploaded_attachments(self, mock_store_attachments):
+        self._ensure_cbs_signature_users()
+        upload = SimpleUploadedFile("approval-note.txt", b"please attach", content_type="text/plain")
+
+        response = self.client.post(
+            reverse("cbs_access_branch_request"),
+            data={**self._cbs_branch_payload(), "attachments": [upload]},
+        )
+        ticket = Ticket.objects.get(subject="CBS Access Request")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, reverse("ticket_detail", args=[ticket.id]))
+        mock_store_attachments.assert_called_once()
+        stored_ticket, uploads, uploaded_by = mock_store_attachments.call_args.args
+        self.assertEqual(stored_ticket.id, ticket.id)
+        self.assertEqual([item.name for item in uploads], ["approval-note.txt"])
+        self.assertEqual(uploaded_by.id, self.user.id)
+
+    def test_cbs_access_ticket_detail_shows_attachment_view_and_download_actions(self):
+        ticket = Ticket.objects.create(
+            created_by=self.user,
+            subject="CBS Access Request",
+            request_type="cbs_access_branch",
+            department="Operations",
+            description="CBS request with evidence.",
+        )
+        approval = RemoteAccessApproval.objects.create(
+            ticket=ticket,
+            recommender=self.recommender,
+            second_recommender=self.second_recommender,
+            approver=self.approver,
+        )
+        message = TicketMessage.objects.create(
+            ticket=ticket,
+            author=self.user,
+            body="Attachment uploaded: approval-note.pdf",
+        )
+        attachment = TicketMessageAttachment.objects.create(
+            ticket=ticket,
+            message=message,
+            uploaded_by=self.user,
+            object_key="tickets/test/approval-note.pdf",
+            filename="approval-note.pdf",
+            content_type="application/octet-stream",
+            size=8,
+        )
+
+        response = self.client.get(reverse("ticket_detail", args=[ticket.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, reverse("ticket_attachment_view", args=[ticket.id, attachment.id]))
+        self.assertContains(response, reverse("ticket_attachment_download", args=[ticket.id, attachment.id]))
+        self.assertContains(response, "View")
+        self.assertContains(response, "Download")
+
+    @patch("tickets.views.get_s3_client")
+    @patch("tickets.views.get_minio_config")
+    def test_cbs_access_reviewer_can_view_attachment_without_chat_access(
+        self,
+        mock_get_minio_config,
+        mock_get_s3_client,
+    ):
+        ticket = Ticket.objects.create(
+            created_by=self.user,
+            subject="CBS Access Request",
+            request_type="cbs_access_branch",
+            department="Operations",
+            description="CBS request with evidence.",
+        )
+        approval = RemoteAccessApproval.objects.create(
+            ticket=ticket,
+            recommender=self.recommender,
+            second_recommender=self.second_recommender,
+            approver=self.approver,
+        )
+        message = TicketMessage.objects.create(
+            ticket=ticket,
+            author=self.user,
+            body="Attachment uploaded: approval-note.pdf",
+        )
+        attachment = TicketMessageAttachment.objects.create(
+            ticket=ticket,
+            message=message,
+            uploaded_by=self.user,
+            object_key="tickets/test/approval-note.pdf",
+            filename="approval-note.pdf",
+            content_type="application/octet-stream",
+            size=8,
+        )
+        mock_get_minio_config.return_value = Mock(bucket="ticket-files")
+        mock_s3 = Mock()
+        mock_s3.get_object.return_value = {
+            "Body": _MockS3Body(b"%PDF-1.4"),
+            "ContentLength": 8,
+        }
+        mock_get_s3_client.return_value = mock_s3
+        approver_client = Client()
+        approver_client.force_login(self.approver)
+
+        response = approver_client.get(reverse("ticket_attachment_view", args=[ticket.id, attachment.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertIn("inline", response["Content-Disposition"])
+        self.assertEqual(b"".join(response.streaming_content), b"%PDF-1.4")
+
+    def test_cbs_access_recommender_and_approver_can_use_request_chat(self):
+        ticket = Ticket.objects.create(
+            created_by=self.user,
+            subject="CBS Access Request",
+            request_type="cbs_access_branch",
+            department="Operations",
+            description="CBS request with discussion.",
+        )
+        RemoteAccessApproval.objects.create(
+            ticket=ticket,
+            recommender=self.recommender,
+            second_recommender=self.second_recommender,
+            approver=self.approver,
+        )
+        TicketMessage.objects.create(
+            ticket=ticket,
+            author=self.user,
+            body="Please review the attached CBS request details.",
+        )
+
+        for participant in (self.recommender, self.second_recommender, self.approver):
+            with self.subTest(participant=participant.username):
+                client = Client()
+                client.force_login(participant)
+                response = client.get(reverse("ticket_detail", args=[ticket.id]))
+
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, "Ticket Chat")
+                self.assertContains(response, "Please review the attached CBS request details.")
+                self.assertNotContains(response, "Remote access approval requests do not use ticket chat")
+
+    def test_resolved_approved_cbs_access_request_chat_is_read_only(self):
+        ticket = Ticket.objects.create(
+            created_by=self.user,
+            assigned_to=self.approver,
+            subject="CBS Access Request",
+            request_type="cbs_access_branch",
+            department="Operations",
+            description="CBS request with resolved discussion.",
+            status="resolved",
+            resolved_at=timezone.now(),
+            resolved_by=self.approver,
+        )
+        approval = RemoteAccessApproval.objects.create(
+            ticket=ticket,
+            recommender=self.recommender,
+            second_recommender=self.second_recommender,
+            approver=self.approver,
+            status=RemoteAccessApproval.STATUS_APPROVED,
+            decided_by=self.approver,
+            decided_at=timezone.now(),
+        )
+        TicketMessage.objects.create(
+            ticket=ticket,
+            author=self.user,
+            body="This discussion should now be read-only.",
+        )
+        client = Client()
+        client.force_login(self.approver)
+
+        response = client.get(reverse("ticket_detail", args=[ticket.id]))
+        content = response.content.decode("utf-8")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "This discussion should now be read-only.")
+        self.assertContains(response, "This conversation is closed because the CBS access request has been resolved.")
+        self.assertIn('id="chat-message-submit" class="btn btn-primary" type="button" disabled', content)
+        self.assertIn('id="chat-file-submit" class="btn btn-outline-primary" type="button" disabled', content)
 
     def test_cbs_branch_access_docx_uses_branch_template(self):
         from tickets.views import _build_cbs_access_docx
@@ -2091,6 +2422,19 @@ class RemoteAccessRequestViewTests(TestCase):
 
         self.assertEqual(data["request_id"], ticket.ticket_id)
 
+    def test_cbs_access_requires_name_to_match_endorsement_signature_user(self):
+        self._ensure_cbs_signature_users()
+
+        form = CBSAccessRequestForm(
+            data=self._cbs_branch_payload(name="Different Person"),
+            request_user=self.user,
+            office_type="branch",
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("name", form.errors)
+        self.assertIn("Name must match the selected acknowledgement signature user", form.errors["name"][0])
+
     def test_cbs_branch_access_request_supports_second_recommender_chain(self):
         self._ensure_cbs_signature_users()
         response = self.client.post(
@@ -2108,6 +2452,34 @@ class RemoteAccessRequestViewTests(TestCase):
         self.assertEqual(approval.status, RemoteAccessApproval.STATUS_PENDING_RECOMMENDATION)
         self.assertEqual(approval.current_stage, "recommendation")
         self.assertEqual(approval.current_reviewer, self.recommender)
+
+        detail_response = self.client.get(reverse("ticket_detail", args=[ticket.id]))
+        list_response = self.client.get(reverse("ticket_list"), {"request_type": "cbs_access"})
+        operation_client = Client()
+        operation_client.force_login(self.central_operation_user)
+        operation_response = operation_client.get(reverse("support_cbs_access_requests"))
+
+        self.assertContains(detail_response, "Concerned User (CBS Access Provider)")
+        self.assertContains(detail_response, self.other_user.username)
+        self.assertContains(list_response, "Concerned User (CBS Access Provider)")
+        self.assertContains(list_response, self.other_user.username)
+        self.assertContains(operation_response, "Concerned User (CBS Access Provider)")
+        self.assertContains(operation_response, self.other_user.username)
+
+        pending_change_response = self.client.post(
+            reverse("cbs_access_concerned_user_update", args=[ticket.id]),
+            data={"cbs_assigned_to": str(self.central_operation_user.id)},
+            follow=True,
+        )
+        ticket.refresh_from_db()
+        approval.refresh_from_db()
+
+        self.assertEqual(pending_change_response.status_code, 200)
+        self.assertIsNone(ticket.assigned_to_id)
+        self.assertEqual(approval.post_approval_assigned_to_id, self.central_operation_user.id)
+        self.assertContains(pending_change_response, "Change Concerned User (CBS Access Provider)")
+        self.assertContains(pending_change_response, "Update Concerned User")
+        self.assertContains(pending_change_response, self.central_operation_user.username)
 
         mail.outbox.clear()
         recommender_client = Client()
@@ -2166,6 +2538,7 @@ class RemoteAccessRequestViewTests(TestCase):
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].to, [self.approver.email])
 
+        mail.outbox.clear()
         final_response = approver_client.post(
             reverse("remote_access_approval_update", args=[ticket.id]),
             data={
@@ -2178,6 +2551,475 @@ class RemoteAccessRequestViewTests(TestCase):
         self.assertEqual(final_response.status_code, 302)
         self.assertEqual(approval.status, RemoteAccessApproval.STATUS_APPROVED)
         self.assertEqual(approval.decided_by_id, self.approver.id)
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.assigned_to_id, self.central_operation_user.id)
+        self.assertEqual(ticket.status, "in_progress")
+        self.assertTrue(any(message.to == [self.central_operation_user.email] for message in mail.outbox))
+
+        mail.outbox.clear()
+        reassign_response = self.client.post(
+            reverse("cbs_access_concerned_user_update", args=[ticket.id]),
+            data={"cbs_assigned_to": str(self.other_user.id)},
+            follow=True,
+        )
+        ticket.refresh_from_db()
+        approval.refresh_from_db()
+
+        self.assertEqual(reassign_response.status_code, 200)
+        self.assertEqual(ticket.assigned_to_id, self.other_user.id)
+        self.assertEqual(approval.post_approval_assigned_to_id, self.other_user.id)
+        self.assertContains(reassign_response, "Concerned User (CBS Access Provider)")
+        self.assertContains(reassign_response, "Change Concerned User (CBS Access Provider)")
+        self.assertContains(reassign_response, self.other_user.username)
+        self.assertTrue(any(message.to == [self.other_user.email] for message in mail.outbox))
+
+    def test_cbs_branch_without_second_recommender_uses_three_signoff_columns(self):
+        from tickets.views import WORD_NS, _build_cbs_access_docx, _cbs_access_data_from_ticket
+
+        self._ensure_cbs_signature_users()
+        self.client.post(
+            reverse("cbs_access_branch_request"),
+            data=self._cbs_branch_payload(second_recommender=""),
+        )
+        ticket = Ticket.objects.get(subject="CBS Access Request")
+        approval = RemoteAccessApproval.objects.get(ticket=ticket)
+        self.assertIsNone(approval.second_recommender_id)
+
+        detail_response = self.client.get(reverse("ticket_detail", args=[ticket.id]))
+
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertNotContains(detail_response, "Second Recommended By")
+        self.assertNotContains(detail_response, "Second recommended by signature")
+
+        payload = _build_cbs_access_docx(_cbs_access_data_from_ticket(ticket), remote_access_approval=approval)
+        with zipfile.ZipFile(BytesIO(payload), "r") as docx_file:
+            document_xml = docx_file.read("word/document.xml")
+        root = ET.fromstring(document_xml)
+        all_rows = root.findall(".//w:tr", WORD_NS)
+        signoff_row_index = None
+        for index, row in enumerate(all_rows):
+            row_text = "".join(node.text or "" for node in row.findall(".//w:t", WORD_NS))
+            if "User Requested By" in row_text and "Approved By" in row_text:
+                signoff_row_index = index
+                break
+
+        self.assertIsNotNone(signoff_row_index)
+        for row in all_rows[signoff_row_index : signoff_row_index + 5]:
+            cells = row.findall("./w:tc", WORD_NS)
+            self.assertEqual(len(cells), 3)
+            for cell in cells:
+                grid_span = cell.find("./w:tcPr/w:gridSpan", WORD_NS)
+                cell_width = cell.find("./w:tcPr/w:tcW", WORD_NS)
+                self.assertIsNotNone(grid_span)
+                self.assertIsNotNone(cell_width)
+                self.assertEqual(grid_span.get(f"{{{WORD_NS['w']}}}val"), "2")
+                self.assertEqual(cell_width.get(f"{{{WORD_NS['w']}}}w"), "3120")
+
+    def test_requester_can_cancel_pending_cbs_access_request(self):
+        self._ensure_cbs_signature_users()
+        self.client.post(
+            reverse("cbs_access_branch_request"),
+            data=self._cbs_branch_payload(),
+        )
+        ticket = Ticket.objects.get(subject="CBS Access Request")
+        approval = RemoteAccessApproval.objects.get(ticket=ticket)
+
+        detail_response = self.client.get(reverse("ticket_detail", args=[ticket.id]))
+
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertContains(detail_response, "Cancel Request")
+        self.assertContains(detail_response, reverse("cbs_access_request_cancel", args=[ticket.id]))
+
+        cancel_response = self.client.post(
+            reverse("cbs_access_request_cancel", args=[ticket.id]),
+            data={"cancellation_reason": "Submitted by mistake."},
+            follow=True,
+        )
+
+        self.assertEqual(cancel_response.status_code, 200)
+        ticket.refresh_from_db()
+        approval.refresh_from_db()
+        self.assertEqual(ticket.status, "cancelled_duplicate")
+        self.assertEqual(ticket.closed_by_id, self.user.id)
+        self.assertEqual(ticket.closed_note, "Submitted by mistake.")
+        self.assertEqual(approval.status, RemoteAccessApproval.STATUS_PENDING_RECOMMENDATION)
+        self.assertContains(cancel_response, "CBS access request cancelled")
+        self.assertContains(cancel_response, "This CBS access request was cancelled")
+        self.assertContains(cancel_response, "Cancelled / Duplicate")
+        self.assertNotContains(cancel_response, "Pending Recommendation")
+        self.assertNotContains(cancel_response, "Waiting for recommendation")
+        self.assertContains(cancel_response, "This conversation is closed because the CBS access request has been cancelled.")
+        self.assertNotContains(cancel_response, reverse("cbs_access_request_correct", args=[ticket.id]))
+        self.assertNotContains(cancel_response, reverse("cbs_access_signoff_chain_update", args=[ticket.id]))
+
+        recommender_client = Client()
+        recommender_client.force_login(self.recommender)
+        decision_response = recommender_client.post(
+            reverse("remote_access_approval_update", args=[ticket.id]),
+            data={"decision": RemoteAccessApproval.STATUS_APPROVED},
+            follow=True,
+        )
+
+        approval.refresh_from_db()
+        self.assertEqual(decision_response.status_code, 200)
+        self.assertEqual(approval.status, RemoteAccessApproval.STATUS_PENDING_RECOMMENDATION)
+        self.assertContains(decision_response, "has been cancelled")
+
+        edit_response = self.client.get(reverse("cbs_access_request_correct", args=[ticket.id]), follow=True)
+        self.assertEqual(edit_response.status_code, 200)
+        self.assertContains(edit_response, "has been cancelled and is no longer editable")
+
+        chain_response = self.client.post(
+            reverse("cbs_access_signoff_chain_update", args=[ticket.id]),
+            data={
+                "recommender": str(self.recommender.id),
+                "second_recommender": str(self.second_recommender.id),
+                "approver": str(self.approver.id),
+            },
+            follow=True,
+        )
+        self.assertEqual(chain_response.status_code, 200)
+        self.assertContains(chain_response, "only before final approval")
+
+    def test_requester_cannot_cancel_approved_cbs_access_request(self):
+        ticket = Ticket.objects.create(
+            created_by=self.user,
+            subject="CBS Access Request",
+            request_type="cbs_access_branch",
+            department="Operations",
+            description="Approved CBS access request.",
+            status="in_progress",
+            assigned_to=self.other_user,
+        )
+        RemoteAccessApproval.objects.create(
+            ticket=ticket,
+            recommender=self.recommender,
+            second_recommender=self.second_recommender,
+            approver=self.approver,
+            status=RemoteAccessApproval.STATUS_APPROVED,
+            decided_by=self.approver,
+            decided_at=timezone.now(),
+        )
+
+        detail_response = self.client.get(reverse("ticket_detail", args=[ticket.id]))
+
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertNotContains(detail_response, reverse("cbs_access_request_cancel", args=[ticket.id]))
+
+        cancel_response = self.client.post(
+            reverse("cbs_access_request_cancel", args=[ticket.id]),
+            data={"cancellation_reason": "Trying after approval."},
+            follow=True,
+        )
+
+        ticket.refresh_from_db()
+        self.assertEqual(cancel_response.status_code, 200)
+        self.assertEqual(ticket.status, "in_progress")
+        self.assertContains(cancel_response, "cannot be cancelled")
+
+    def test_approved_cbs_access_request_cannot_be_decided_or_corrected(self):
+        self._ensure_cbs_signature_users()
+        self.client.post(
+            reverse("cbs_access_branch_request"),
+            data=self._cbs_branch_payload(),
+        )
+        ticket = Ticket.objects.get(subject="CBS Access Request")
+        approval = RemoteAccessApproval.objects.get(ticket=ticket)
+
+        recommender_client = Client()
+        recommender_client.force_login(self.recommender)
+        recommender_client.post(
+            reverse("remote_access_approval_update", args=[ticket.id]),
+            data={"decision": RemoteAccessApproval.STATUS_APPROVED},
+        )
+        second_client = Client()
+        second_client.force_login(self.second_recommender)
+        second_client.post(
+            reverse("remote_access_approval_update", args=[ticket.id]),
+            data={"decision": RemoteAccessApproval.STATUS_APPROVED},
+        )
+        approver_client = Client()
+        approver_client.force_login(self.approver)
+        approver_client.post(
+            reverse("remote_access_approval_update", args=[ticket.id]),
+            data={"decision": RemoteAccessApproval.STATUS_APPROVED},
+        )
+        approval.refresh_from_db()
+        self.assertEqual(approval.status, RemoteAccessApproval.STATUS_APPROVED)
+
+        repeat_response = approver_client.post(
+            reverse("remote_access_approval_update", args=[ticket.id]),
+            data={"decision": RemoteAccessApproval.STATUS_REJECTED},
+            follow=True,
+        )
+        approval.refresh_from_db()
+        self.assertEqual(repeat_response.status_code, 200)
+        self.assertEqual(approval.status, RemoteAccessApproval.STATUS_APPROVED)
+        self.assertContains(repeat_response, "finalized and is no longer editable")
+
+        self.client.force_login(self.user)
+        correction_response = self.client.post(
+            reverse("cbs_access_request_correct", args=[ticket.id]),
+            data=self._cbs_branch_payload(name="Changed Branch User"),
+            follow=True,
+        )
+        ticket.refresh_from_db()
+        self.assertEqual(correction_response.status_code, 200)
+        self.assertEqual(ticket.subject, "CBS Access Request")
+        self.assertContains(correction_response, "finalized and is no longer editable")
+
+    def test_resolved_approved_cbs_access_request_locks_document_send_and_ticket_update(self):
+        ticket = Ticket.objects.create(
+            created_by=self.user,
+            assigned_to=self.approver,
+            subject="CBS Access Request",
+            request_type="cbs_access_branch",
+            department="Operations",
+            description="Approved CBS access request.",
+            status="resolved",
+            resolved_at=timezone.now(),
+            resolved_by=self.approver,
+        )
+        approval = RemoteAccessApproval.objects.create(
+            ticket=ticket,
+            recommender=self.recommender,
+            second_recommender=self.second_recommender,
+            approver=self.approver,
+            status=RemoteAccessApproval.STATUS_APPROVED,
+            decided_by=self.approver,
+            decided_at=timezone.now(),
+        )
+        approver_client = Client()
+        approver_client.force_login(self.approver)
+
+        detail_response = approver_client.get(reverse("ticket_detail", args=[ticket.id]))
+
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertNotContains(detail_response, "Send Approved Document")
+        self.assertNotContains(detail_response, "Send Approved CBS Document")
+        self.assertNotContains(detail_response, reverse("ticket_update", args=[ticket.id]))
+        self.assertNotContains(detail_response, "Change Concerned User (CBS Access Provider)")
+        self.assertNotContains(detail_response, "Update Sign-off Chain")
+        self.assertContains(detail_response, "This resolved CBS access request is locked")
+
+        send_response = approver_client.post(
+            reverse("cbs_access_request_send_document", args=[ticket.id]),
+            data={"document_recipient_emails": "ops@bestfinance.com.np"},
+            follow=True,
+        )
+        self.assertEqual(send_response.status_code, 200)
+        self.assertContains(send_response, "can no longer be sent")
+
+        update_response = approver_client.get(reverse("ticket_update", args=[ticket.id]), follow=True)
+        self.assertEqual(update_response.status_code, 200)
+        self.assertContains(update_response, "locked for ticket status updates")
+
+        self.client.force_login(self.user)
+        concerned_response = self.client.post(
+            reverse("cbs_access_concerned_user_update", args=[ticket.id]),
+            data={"cbs_assigned_to": str(self.other_user.id)},
+            follow=True,
+        )
+        ticket.refresh_from_db()
+        approval.refresh_from_db()
+        self.assertEqual(concerned_response.status_code, 200)
+        self.assertIsNone(ticket.assigned_to_id)
+        self.assertIsNone(approval.post_approval_assigned_to_id)
+        self.assertContains(concerned_response, "not allowed to change the concerned user")
+
+        signoff_response = self.client.post(
+            reverse("cbs_access_signoff_chain_update", args=[ticket.id]),
+            data={
+                "recommender": str(self.recommender.id),
+                "second_recommender": str(self.second_recommender.id),
+                "approver": str(self.other_user.id),
+            },
+            follow=True,
+        )
+        approval.refresh_from_db()
+        self.assertEqual(signoff_response.status_code, 200)
+        self.assertEqual(approval.approver_id, self.approver.id)
+        self.assertContains(signoff_response, "only before final approval")
+
+    def test_pending_cbs_access_request_can_be_edited_by_requester(self):
+        self._ensure_cbs_signature_users()
+        self.client.post(
+            reverse("cbs_access_branch_request"),
+            data=self._cbs_branch_payload(),
+        )
+        ticket = Ticket.objects.get(subject="CBS Access Request")
+        approval = RemoteAccessApproval.objects.get(ticket=ticket)
+        self.assertEqual(approval.status, RemoteAccessApproval.STATUS_PENDING_RECOMMENDATION)
+
+        detail_response = self.client.get(reverse("ticket_detail", args=[ticket.id]))
+        self.assertContains(detail_response, "Edit &amp; Resubmit")
+
+        edit_response = self.client.get(reverse("cbs_access_request_correct", args=[ticket.id]))
+        self.assertEqual(edit_response.status_code, 200)
+        self.assertContains(edit_response, "Edit CBS Access Request")
+
+        post_response = self.client.post(
+            reverse("cbs_access_request_correct", args=[ticket.id]),
+            data=self._cbs_branch_payload(employee_id="EMP-999"),
+        )
+        ticket.refresh_from_db()
+        approval.refresh_from_db()
+
+        self.assertEqual(post_response.status_code, 302)
+        self.assertEqual(post_response.url, reverse("ticket_detail", args=[ticket.id]))
+        self.assertIn("Employee ID: EMP-999", ticket.description)
+        self.assertEqual(approval.status, RemoteAccessApproval.STATUS_PENDING_RECOMMENDATION)
+
+    def test_central_operation_can_view_all_cbs_requests_and_update_unapproved_signoff_chain(self):
+        self._ensure_cbs_signature_users()
+        self.client.post(
+            reverse("cbs_access_branch_request"),
+            data=self._cbs_branch_payload(),
+        )
+        ticket = Ticket.objects.get(subject="CBS Access Request")
+        approval = RemoteAccessApproval.objects.get(ticket=ticket)
+
+        central_client = Client()
+        central_client.force_login(self.central_operation_user)
+        queue_response = central_client.get(reverse("support_cbs_access_requests"))
+        detail_response = central_client.get(reverse("ticket_detail", args=[ticket.id]))
+        update_response = central_client.post(
+            reverse("cbs_access_signoff_chain_update", args=[ticket.id]),
+            data={
+                "recommender": "",
+                "second_recommender": "",
+                "approver": str(self.other_user.id),
+            },
+        )
+        approval.refresh_from_db()
+
+        self.assertEqual(queue_response.status_code, 200)
+        self.assertContains(queue_response, ticket.ticket_id)
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertContains(detail_response, "Central Operation Sign-off Chain")
+        self.assertEqual(update_response.status_code, 302)
+        self.assertEqual(update_response.url, reverse("ticket_detail", args=[ticket.id]))
+        self.assertIsNone(approval.recommender_id)
+        self.assertIsNone(approval.second_recommender_id)
+        self.assertEqual(approval.approver_id, self.other_user.id)
+        self.assertEqual(approval.status, RemoteAccessApproval.STATUS_PENDING_APPROVAL)
+
+    def test_cbs_signoff_chain_update_keeps_completed_first_recommender_signature(self):
+        self._ensure_cbs_signature_users()
+        self.client.post(
+            reverse("cbs_access_branch_request"),
+            data=self._cbs_branch_payload(second_recommender=""),
+        )
+        ticket = Ticket.objects.get(subject="CBS Access Request")
+        approval = RemoteAccessApproval.objects.get(ticket=ticket)
+
+        recommender_client = Client()
+        recommender_client.force_login(self.recommender)
+        recommender_client.post(
+            reverse("remote_access_approval_update", args=[ticket.id]),
+            data={
+                "decision": RemoteAccessApproval.STATUS_APPROVED,
+                "decision_note": "First recommendation ok.",
+            },
+        )
+        approval.refresh_from_db()
+        first_signature_name = approval.recommended_signature_snapshot.name
+
+        central_client = Client()
+        central_client.force_login(self.central_operation_user)
+        response = central_client.post(
+            reverse("cbs_access_signoff_chain_update", args=[ticket.id]),
+            data={
+                "recommender": str(self.recommender.id),
+                "second_recommender": str(self.second_recommender.id),
+                "approver": str(self.approver.id),
+            },
+        )
+        approval.refresh_from_db()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(approval.recommended_by_id, self.recommender.id)
+        self.assertEqual(approval.recommended_signature_snapshot.name, first_signature_name)
+        self.assertEqual(approval.second_recommender_id, self.second_recommender.id)
+        self.assertIsNone(approval.second_recommended_by_id)
+        self.assertFalse(approval.second_recommended_signature_snapshot)
+        self.assertEqual(approval.status, RemoteAccessApproval.STATUS_PENDING_RECOMMENDATION)
+        self.assertEqual(approval.current_stage, "second_recommendation")
+        self.assertEqual(approval.current_reviewer, self.second_recommender)
+
+    def test_requester_can_update_pending_cbs_signoff_chain_but_not_completed_recommender(self):
+        self._ensure_cbs_signature_users()
+        self.client.post(
+            reverse("cbs_access_branch_request"),
+            data=self._cbs_branch_payload(second_recommender=""),
+        )
+        ticket = Ticket.objects.get(subject="CBS Access Request")
+        approval = RemoteAccessApproval.objects.get(ticket=ticket)
+
+        recommender_client = Client()
+        recommender_client.force_login(self.recommender)
+        recommender_client.post(
+            reverse("remote_access_approval_update", args=[ticket.id]),
+            data={
+                "decision": RemoteAccessApproval.STATUS_APPROVED,
+                "decision_note": "First recommendation ok.",
+            },
+        )
+        approval.refresh_from_db()
+        first_signature_name = approval.recommended_signature_snapshot.name
+
+        detail_response = self.client.get(reverse("ticket_detail", args=[ticket.id]))
+        response = self.client.post(
+            reverse("cbs_access_signoff_chain_update", args=[ticket.id]),
+            data={
+                "recommender": str(self.other_user.id),
+                "second_recommender": str(self.second_recommender.id),
+                "approver": str(self.approver.id),
+            },
+        )
+        approval.refresh_from_db()
+
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertContains(detail_response, "Update Sign-off Chain")
+        self.assertContains(detail_response, "This stage is already completed and cannot be changed.")
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(approval.recommender_id, self.recommender.id)
+        self.assertEqual(approval.recommended_by_id, self.recommender.id)
+        self.assertEqual(approval.recommended_signature_snapshot.name, first_signature_name)
+        self.assertEqual(approval.second_recommender_id, self.second_recommender.id)
+        self.assertEqual(approval.current_stage, "second_recommendation")
+        self.assertEqual(approval.current_reviewer, self.second_recommender)
+
+    def test_central_operation_cannot_update_approved_cbs_signoff_chain(self):
+        self._ensure_cbs_signature_users()
+        self.client.post(
+            reverse("cbs_access_branch_request"),
+            data=self._cbs_branch_payload(),
+        )
+        ticket = Ticket.objects.get(subject="CBS Access Request")
+        approval = RemoteAccessApproval.objects.get(ticket=ticket)
+        approval.status = RemoteAccessApproval.STATUS_APPROVED
+        approval.decided_by = self.approver
+        approval.decided_at = timezone.now()
+        approval.save(update_fields=["status", "decided_by", "decided_at"])
+
+        central_client = Client()
+        central_client.force_login(self.central_operation_user)
+        response = central_client.post(
+            reverse("cbs_access_signoff_chain_update", args=[ticket.id]),
+            data={
+                "recommender": "",
+                "second_recommender": "",
+                "approver": str(self.other_user.id),
+            },
+            follow=True,
+        )
+        approval.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(approval.approver_id, self.approver.id)
+        self.assertEqual(approval.status, RemoteAccessApproval.STATUS_APPROVED)
+        self.assertContains(response, "You can change the CBS sign-off chain only before final approval")
 
     def test_remote_access_request_creates_access_ticket_without_recommender(self):
         response = self._create_request()
@@ -3053,6 +3895,20 @@ class ClosedTicketChatLockTests(TestCase):
         self.assertIn('id="chat-message-submit" class="btn btn-primary" type="button" disabled', content)
         self.assertIn('id="chat-file-submit" class="btn btn-outline-primary" type="button" disabled', content)
 
+    def test_resolved_ticket_detail_disables_chat_controls(self):
+        self.ticket.status = "resolved"
+        self.ticket.resolved_at = timezone.now()
+        self.ticket.save(update_fields=["status", "resolved_at", "updated_at"])
+        self.client.force_login(self.requester)
+
+        response = self.client.get(reverse("ticket_detail", args=[self.ticket.id]))
+        content = response.content.decode("utf-8")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "This conversation is closed because the ticket has been resolved.")
+        self.assertIn('id="chat-message-submit" class="btn btn-primary" type="button" disabled', content)
+        self.assertIn('id="chat-file-submit" class="btn btn-outline-primary" type="button" disabled', content)
+
     def test_closed_ticket_attachment_upload_is_blocked(self):
         self.client.force_login(self.requester)
 
@@ -3065,6 +3921,24 @@ class ClosedTicketChatLockTests(TestCase):
         self.assertEqual(
             response.json(),
             {"ok": False, "error": "Chat is disabled for closed tickets."},
+        )
+        self.assertEqual(TicketMessage.objects.filter(ticket=self.ticket).count(), 0)
+
+    def test_resolved_ticket_attachment_upload_is_blocked(self):
+        self.ticket.status = "resolved"
+        self.ticket.resolved_at = timezone.now()
+        self.ticket.save(update_fields=["status", "resolved_at", "updated_at"])
+        self.client.force_login(self.requester)
+
+        response = self.client.post(
+            reverse("ticket_attachment_upload", args=[self.ticket.id]),
+            {"file": SimpleUploadedFile("note.txt", b"hello", content_type="text/plain")},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json(),
+            {"ok": False, "error": "This conversation is closed because the ticket has been resolved."},
         )
         self.assertEqual(TicketMessage.objects.filter(ticket=self.ticket).count(), 0)
 
@@ -3084,6 +3958,28 @@ class ClosedTicketChatLockTests(TestCase):
         self.assertEqual(
             response.json(),
             {"ok": False, "error": "Chat is disabled for closed tickets."},
+        )
+        self.assertTrue(TicketMessage.objects.filter(id=message.id).exists())
+
+    def test_resolved_ticket_message_delete_is_blocked(self):
+        self.ticket.status = "resolved"
+        self.ticket.resolved_at = timezone.now()
+        self.ticket.save(update_fields=["status", "resolved_at", "updated_at"])
+        message = TicketMessage.objects.create(
+            ticket=self.ticket,
+            author=self.requester,
+            body="Do not delete after resolution.",
+        )
+        self.client.force_login(self.requester)
+
+        response = self.client.post(
+            reverse("ticket_chat_message_delete", args=[self.ticket.id, message.id]),
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json(),
+            {"ok": False, "error": "This conversation is closed because the ticket has been resolved."},
         )
         self.assertTrue(TicketMessage.objects.filter(id=message.id).exists())
 
@@ -3326,6 +4222,65 @@ class TicketChatAttachmentUploadTests(TestCase):
         )
         self.assertEqual(TicketMessage.objects.filter(ticket=self.ticket).count(), 0)
         self.assertEqual(TicketMessageAttachment.objects.filter(ticket=self.ticket).count(), 0)
+
+    def test_ticket_detail_embeds_pdf_attachment_with_view_and_download_actions(self):
+        message = TicketMessage.objects.create(
+            ticket=self.ticket,
+            author=self.requester,
+            body="Attachment uploaded: receipt.pdf",
+        )
+        attachment = TicketMessageAttachment.objects.create(
+            ticket=self.ticket,
+            message=message,
+            uploaded_by=self.requester,
+            object_key="tickets/test/receipt.pdf",
+            filename="receipt.pdf",
+            content_type="application/octet-stream",
+            size=123,
+        )
+
+        response = self.client.get(reverse("ticket_detail", args=[self.ticket.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, reverse("ticket_attachment_view", args=[self.ticket.id, attachment.id]))
+        self.assertContains(response, reverse("ticket_attachment_download", args=[self.ticket.id, attachment.id]))
+        self.assertContains(response, "<iframe", html=False)
+
+    @patch("tickets.views.get_s3_client")
+    @patch("tickets.views.get_minio_config")
+    def test_ticket_attachment_view_streams_pdf_inline_with_guessed_content_type(
+        self,
+        mock_get_minio_config,
+        mock_get_s3_client,
+    ):
+        message = TicketMessage.objects.create(
+            ticket=self.ticket,
+            author=self.requester,
+            body="Attachment uploaded: receipt.pdf",
+        )
+        attachment = TicketMessageAttachment.objects.create(
+            ticket=self.ticket,
+            message=message,
+            uploaded_by=self.requester,
+            object_key="tickets/test/receipt.pdf",
+            filename="receipt.pdf",
+            content_type="application/octet-stream",
+            size=8,
+        )
+        mock_get_minio_config.return_value = Mock(bucket="ticket-files")
+        mock_s3 = Mock()
+        mock_s3.get_object.return_value = {
+            "Body": _MockS3Body(b"%PDF-1.4"),
+            "ContentLength": 8,
+        }
+        mock_get_s3_client.return_value = mock_s3
+
+        response = self.client.get(reverse("ticket_attachment_view", args=[self.ticket.id, attachment.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertIn("inline", response["Content-Disposition"])
+        self.assertEqual(b"".join(response.streaming_content), b"%PDF-1.4")
 
 
 class TicketChatMessageDeleteTests(TestCase):
@@ -6013,6 +6968,116 @@ class IncidentReportViewTests(TestCase):
         self.assertEqual(response["Content-Type"], "text/plain")
         self.assertIn('incident-log.txt', response["Content-Disposition"])
 
+    def test_incident_report_page_shows_attachment_view_and_download_actions(self):
+        incident_report = IncidentReport.objects.create(
+            ticket=self.ticket,
+            incident_title="CBS Outage at Kathmandu",
+            incident_id="INC-2026-001",
+            service_affected="cbs",
+            downtime_duration_minutes=45,
+            branch_impacted="Kathmandu",
+            regulatory_impact=True,
+            registered_user=self.support_user,
+        )
+        attachment = IncidentReportAttachment.objects.create(
+            incident_report=incident_report,
+            file=self._evidence_upload("incident-evidence.pdf", payload=b"%PDF-1.4", content_type="application/octet-stream"),
+            original_name="incident-evidence.pdf",
+            content_type="application/octet-stream",
+            size=8,
+            uploaded_by=self.support_user,
+        )
+        self.client.force_login(self.requester)
+
+        response = self.client.get(reverse("ticket_incident_report", args=[self.ticket.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, reverse("ticket_incident_report_attachment_view", args=[self.ticket.id, attachment.id]))
+        self.assertContains(response, reverse("ticket_incident_report_attachment_download", args=[self.ticket.id, attachment.id]))
+        self.assertContains(response, "View")
+        self.assertContains(response, "Download")
+
+    def test_incident_report_attachment_can_be_viewed_inline(self):
+        incident_report = IncidentReport.objects.create(
+            ticket=self.ticket,
+            incident_title="CBS Outage at Kathmandu",
+            incident_id="INC-2026-001",
+            service_affected="cbs",
+            downtime_duration_minutes=45,
+            branch_impacted="Kathmandu",
+            regulatory_impact=True,
+            registered_user=self.support_user,
+        )
+        attachment = IncidentReportAttachment.objects.create(
+            incident_report=incident_report,
+            file=self._evidence_upload("incident-evidence.pdf", payload=b"%PDF-1.4", content_type="application/octet-stream"),
+            original_name="incident-evidence.pdf",
+            content_type="application/octet-stream",
+            size=8,
+            uploaded_by=self.support_user,
+        )
+        self.client.force_login(self.requester)
+
+        response = self.client.get(
+            reverse("ticket_incident_report_attachment_view", args=[self.ticket.id, attachment.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertIn("inline", response["Content-Disposition"])
+        self.assertEqual(b"".join(response.streaming_content), b"%PDF-1.4")
+
+    @patch("tickets.views.get_s3_client")
+    @patch("tickets.views.get_minio_config")
+    def test_incident_report_signer_can_view_ticket_attachment_without_chat_access(
+        self,
+        mock_get_minio_config,
+        mock_get_s3_client,
+    ):
+        self.ticket.chat_is_private = True
+        self.ticket.save(update_fields=["chat_is_private"])
+        incident_report = IncidentReport.objects.create(
+            ticket=self.ticket,
+            incident_title="CBS Outage at Kathmandu",
+            incident_id="INC-2026-001",
+            service_affected="cbs",
+            downtime_duration_minutes=45,
+            branch_impacted="Kathmandu",
+            regulatory_impact=True,
+            registered_user=self.support_user,
+        )
+        self._create_notified_signoff(incident_report, user=self.ram, level=1)
+        message = TicketMessage.objects.create(
+            ticket=self.ticket,
+            author=self.requester,
+            body="Attachment uploaded: incident-evidence.pdf",
+        )
+        attachment = TicketMessageAttachment.objects.create(
+            ticket=self.ticket,
+            message=message,
+            uploaded_by=self.requester,
+            object_key="tickets/test/incident-evidence.pdf",
+            filename="incident-evidence.pdf",
+            content_type="application/octet-stream",
+            size=8,
+        )
+        mock_get_minio_config.return_value = Mock(bucket="ticket-files")
+        mock_s3 = Mock()
+        mock_s3.get_object.return_value = {
+            "Body": _MockS3Body(b"%PDF-1.4"),
+            "ContentLength": 8,
+        }
+        mock_get_s3_client.return_value = mock_s3
+        signer_client = Client()
+        signer_client.force_login(self.ram)
+
+        response = signer_client.get(reverse("ticket_attachment_view", args=[self.ticket.id, attachment.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertIn("inline", response["Content-Disposition"])
+        self.assertEqual(b"".join(response.streaming_content), b"%PDF-1.4")
+
     @patch("tickets.views._incident_response_template_image_payloads")
     def test_saved_incident_report_can_be_downloaded_as_png(self, mock_image_payloads):
         mock_image_payloads.return_value = [b"incident-png"]
@@ -6069,8 +7134,11 @@ class IncidentReportViewTests(TestCase):
             regulatory_impact=True,
             reporting_employee_name="Deepen GC",
             registered_user=self.support_user,
+            registered_signature=self._signature_upload("registered-signature.png"),
+            registered_signed_at=timezone.now(),
         )
-        self._create_notified_signoff(incident_report, user=self.ram, level=1)
+        self._create_notified_signoff(incident_report, user=self.ram, level=1, signed=True)
+        self._create_notified_signoff(incident_report, user=self.other_user, level=2, signed=True)
 
         payload = _build_ticket_incident_report_docx(self.ticket, incident_report)
 
@@ -6082,6 +7150,7 @@ class IncidentReportViewTests(TestCase):
                 for name in docx_file.namelist()
                 if name.startswith("word/") and name.endswith(".xml") and name != "word/document.xml"
             )
+            package_names = docx_file.namelist()
         self.assertIn("Deepen GC", document_xml)
         self.assertIn("Operations Officer", document_xml)
         self.assertIn("Recovery Actions:", document_xml)
@@ -6093,6 +7162,17 @@ class IncidentReportViewTests(TestCase):
         self.assertNotIn("☑", document_xml)
         self.assertNotIn("☐", document_xml)
         self.assertNotIn("[Title]", document_xml + package_xml)
+        self.assertIn("Shared Confidential", package_xml)
+        self.assertIn(self.ticket.subject, package_xml)
+        self.assertIn("INC-2026-001", package_xml)
+        self.assertNotIn("Incident Subject:", package_xml)
+        self.assertNotIn("Registered By", package_xml)
+        self.assertNotIn("Reviewed By", package_xml)
+        self.assertNotIn("Approved By", package_xml)
+        self.assertNotIn("Incident Report</w:t>", package_xml)
+        self.assertIn("word/_rels/footer1.xml.rels", package_names)
+        self.assertTrue(any(name.startswith("word/media/incident_footer_signature_") for name in package_names))
+        self.assertNotIn("word/footer2.xml", package_names)
         self.assertNotIn("<w:t>Critical</w:t>", document_xml)
         self.assertNotIn("<w:t>High</w:t>", document_xml)
         self.assertNotIn("<w:t>Medium</w:t>", document_xml)
@@ -6188,7 +7268,7 @@ class IncidentReportViewTests(TestCase):
         get_response = self.client.get(reverse("ticket_incident_report", args=[self.ticket.id]))
 
         self.assertEqual(get_response.status_code, 200)
-        self.assertContains(get_response, "Sign Level 1")
+        self.assertContains(get_response, "Sign as Acknowledged By:")
 
         post_response = self.client.post(
             reverse("ticket_incident_report_signoff_sign", args=[self.ticket.id, signoff.id]),
@@ -6201,7 +7281,7 @@ class IncidentReportViewTests(TestCase):
         incident_report.refresh_from_db()
         self.assertTrue(bool(signoff.snapshot_signature))
         self.assertIsNotNone(signoff.signed_at)
-        self.assertEqual(incident_report.display_notified_person, "L1: Ram Thapa")
+        self.assertEqual(incident_report.display_notified_person, "Acknowledged By: Ram Thapa")
 
     def test_changing_assigned_signer_clears_existing_signature_snapshot(self):
         self.ram.signature_image = self._signature_upload("ram-signature.png")
@@ -6348,6 +7428,36 @@ class IncidentReportViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         incident_report.refresh_from_db()
         self.ticket.refresh_from_db()
+        self.assertEqual(incident_report.incident_title, "CBS Outage at Kathmandu")
+        self.assertContains(response, "no longer editable")
+
+    def test_finally_acknowledged_incident_report_cannot_be_edited(self):
+        incident_report = IncidentReport.objects.create(
+            ticket=self.ticket,
+            incident_title="CBS Outage at Kathmandu",
+            incident_id="INC-2026-001",
+            service_affected="cbs",
+            downtime_duration_minutes=45,
+            branch_impacted="Kathmandu",
+            regulatory_impact=True,
+            registered_user=self.support_user,
+            registered_signature=self._signature_upload("registered-signature.png"),
+            registered_signed_at=timezone.now(),
+            created_by=self.support_user,
+            updated_by=self.support_user,
+        )
+        self._create_notified_signoff(incident_report, user=self.ram, level=1, signed=True)
+        self._create_notified_signoff(incident_report, user=self.other_user, level=2, signed=True)
+        self.client.force_login(self.support_user)
+
+        response = self.client.post(
+            reverse("ticket_incident_report", args=[self.ticket.id]),
+            data=self._incident_report_payload(incident_title="Changed after final acknowledgement"),
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        incident_report.refresh_from_db()
         self.assertEqual(incident_report.incident_title, "CBS Outage at Kathmandu")
         self.assertContains(response, "no longer editable")
 

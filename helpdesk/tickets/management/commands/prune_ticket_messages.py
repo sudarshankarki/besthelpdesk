@@ -5,7 +5,7 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from tickets.models import TicketMessage, TicketMessageAttachment
-from tickets.purge import _try_delete_minio_objects
+from tickets.purge import NEVER_PURGE_REQUEST_TYPES, _try_delete_minio_objects
 
 
 class Command(BaseCommand):
@@ -33,7 +33,9 @@ class Command(BaseCommand):
             return
 
         cutoff = timezone.now() - timedelta(days=days)
-        queryset = TicketMessage.objects.filter(created_at__lt=cutoff)
+        queryset = TicketMessage.objects.filter(created_at__lt=cutoff).exclude(
+            ticket__request_type__in=NEVER_PURGE_REQUEST_TYPES
+        )
         count = queryset.count()
         attachment_keys = list(
             TicketMessageAttachment.objects.filter(message__in=queryset).values_list("object_key", flat=True)

@@ -38,7 +38,11 @@
                                     {% endif %}
                                     <span class="d-inline d-lg-none">
                                         <span class="mx-1">•</span>
-                                        <span>Assigned: {{ ticket.display_assignee|default:"Unassigned" }}</span>
+                                        {% if ticket.request_type == 'cbs_access_ho' or ticket.request_type == 'cbs_access_branch' %}
+                                            <span>{{ ticket.cbs_assignment_label|default:"Concerned User (CBS Access Provider)" }}: {{ ticket.cbs_assignment_user|default:"Unassigned" }}</span>
+                                        {% else %}
+                                            <span>Assigned: {{ ticket.display_assignee|default:"Unassigned" }}</span>
+                                        {% endif %}
                                     </span>
                                     <span class="d-inline d-xl-none">
                                         <span class="mx-1">•</span>
@@ -57,7 +61,12 @@
                             </div>
                         </td>
                         <td class="d-none d-lg-table-cell">
-                            {{ ticket.display_assignee|default:"Unassigned" }}
+                            {% if ticket.request_type == 'cbs_access_ho' or ticket.request_type == 'cbs_access_branch' %}
+                                <div class="ticket-meta">{{ ticket.cbs_assignment_label|default:"Concerned User (CBS Access Provider)" }}</div>
+                                <div>{{ ticket.cbs_assignment_user|default:"Unassigned" }}</div>
+                            {% else %}
+                                {{ ticket.display_assignee|default:"Unassigned" }}
+                            {% endif %}
                         </td>
                         <td>
                             {% if ticket.show_priority_badge %}

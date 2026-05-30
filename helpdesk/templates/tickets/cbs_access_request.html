@@ -155,10 +155,10 @@
         <div class="card surface border-0">
             <div class="card-header bg-white border-0 pt-4 px-4 d-flex flex-wrap justify-content-between align-items-start gap-2">
                 <div>
-                    <h4 class="mb-1 fw-bold">{% if cbs_form_mode == "correct" %}Correct CBS Access Request{% else %}CBS Access Request{% endif %}</h4>
+                    <h4 class="mb-1 fw-bold">{% if cbs_form_mode == "correct" %}Edit CBS Access Request{% else %}CBS Access Request{% endif %}</h4>
                     <p class="text-muted mb-0">
                         {% if cbs_form_mode == "correct" %}
-                            Update the rejected request and resubmit it to the approval chain.
+                            Update this request and resubmit it to the approval chain before final approval.
                         {% else %}
                             Fill the {{ cbs_office_label|default:"Head Office" }} CBS user ID request form and submit it to IT.
                         {% endif %}
@@ -169,7 +169,7 @@
                 </div>
             </div>
             <div class="card-body px-4 pb-4">
-                <form method="post" data-prevent-double-submit>
+                <form method="post" enctype="multipart/form-data" data-prevent-double-submit>
                     {% csrf_token %}
                     <input type="hidden" name="submission_token" value="{{ submission_token }}">
 
@@ -352,6 +352,24 @@
                     {% for error in form.endorsement.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
 
                     <div class="cbs-workflow-panel">
+                        <div class="fw-bold mb-2">After Approval Assignment</div>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold" for="{{ form.post_approval_assigned_to.id_for_label }}">{{ form.post_approval_assigned_to.label }}</label>
+                                {{ form.post_approval_assigned_to }}
+                                {% if form.post_approval_assigned_to.help_text %}<div class="form-text">{{ form.post_approval_assigned_to.help_text }}</div>{% endif %}
+                                {% for error in form.post_approval_assigned_to.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold" for="{{ form.post_approval_cc_users.id_for_label }}">{{ form.post_approval_cc_users.label }}</label>
+                                {{ form.post_approval_cc_users }}
+                                {% if form.post_approval_cc_users.help_text %}<div class="form-text">{{ form.post_approval_cc_users.help_text }}</div>{% endif %}
+                                {% for error in form.post_approval_cc_users.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="cbs-workflow-panel">
                         <div class="fw-bold mb-2">Digital Sign-Off Chain</div>
                         <div class="row g-3">
                             <div class="col-md-6">
@@ -379,6 +397,13 @@
                         </div>
                     </div>
 
+                    <div class="cbs-workflow-panel">
+                        <label class="form-label fw-bold" for="{{ form.attachments.id_for_label }}">{{ form.attachments.label }}</label>
+                        {{ form.attachments }}
+                        {% if form.attachments.help_text %}<div class="form-text">{{ form.attachments.help_text }}</div>{% endif %}
+                        {% for error in form.attachments.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+                    </div>
+
                     <div class="d-flex flex-wrap justify-content-end gap-2 mt-3">
                         {% if cbs_form_mode == "correct" and cbs_form_ticket %}
                             <a href="{% url 'ticket_detail' cbs_form_ticket.id %}" class="btn btn-outline-secondary">Cancel</a>
@@ -386,7 +411,7 @@
                             <a href="{% url 'ticket_list' %}" class="btn btn-outline-secondary">Cancel</a>
                         {% endif %}
                         <button type="submit" name="action" value="download_pdf" class="btn btn-outline-primary" data-submitting-text="Preparing PDF...">Download Filled PDF</button>
-                        <button type="submit" name="action" value="submit" class="btn btn-primary" data-submitting-text="Submitting...">{% if cbs_form_mode == "correct" %}Resubmit for Approval{% else %}Submit Request{% endif %}</button>
+                        <button type="submit" name="action" value="submit" class="btn btn-primary" data-submitting-text="Submitting...">{% if cbs_form_mode == "correct" %}Save &amp; Resubmit{% else %}Submit Request{% endif %}</button>
                     </div>
                 </form>
             </div>

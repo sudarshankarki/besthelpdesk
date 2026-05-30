@@ -9,6 +9,12 @@ from .models import Ticket, TicketMessage, TicketMessageAttachment
 
 logger = logging.getLogger(__name__)
 
+NEVER_PURGE_REQUEST_TYPES = ("incident", "cbs_access_ho", "cbs_access_branch")
+
+
+def is_never_purge_ticket(ticket) -> bool:
+    return (getattr(ticket, "request_type", "") or "").strip() in NEVER_PURGE_REQUEST_TYPES
+
 
 def _try_delete_minio_objects(object_keys: list[str]) -> None:
     if not object_keys:
@@ -40,6 +46,8 @@ def purge_ticket_conversation(ticket_id: int) -> dict[str, int]:
     ticket = Ticket.objects.filter(pk=ticket_id).first()
     if not ticket:
         return {"messages_deleted": 0, "attachments_deleted": 0, "ticket_image_cleared": 0}
+    if is_never_purge_ticket(ticket):
+        return {"messages_deleted": 0, "attachments_deleted": 0, "ticket_image_cleared": 0}
 
     attachments = list(
         TicketMessageAttachment.objects.filter(ticket_id=ticket_id).values_list("object_key", flat=True)
@@ -64,4 +72,3 @@ def purge_ticket_conversation(ticket_id: int) -> dict[str, int]:
         "attachments_deleted": attachments_deleted,
         "ticket_image_cleared": ticket_image_cleared,
     }
-

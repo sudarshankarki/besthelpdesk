@@ -5,10 +5,10 @@
 <div class="surface p-3 mb-4">
     <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
         <div>
-            <h2 class="mb-0 fw-bold">Tickets</h2>
+            <h2 class="mb-0 fw-bold">My Tickets</h2>
             <div class="ticket-meta mt-1">Search by Ticket ID and filter tickets by type, status, creator or assignee scope, or a start and end date.</div>
         </div>
-        <a href="{% url 'create_ticket' %}" class="btn btn-primary">New Ticket</a>
+        <a href="{% url 'create_ticket' %}{% if selected_request_type == 'cbs_access' %}?ticket_scope=cbs_access{% endif %}" class="btn btn-primary">New Ticket</a>
     </div>
 
     <form method="get" class="row g-2 align-items-center mt-3">
@@ -88,7 +88,11 @@
 
                         <div class="ticket-meta mt-2">
                             <span class="me-2">By: {{ ticket.created_by.username }}</span>
-                            <span class="me-2">Assigned: {{ ticket.display_assignee|default:"Unassigned" }}</span>
+                            {% if ticket.request_type == 'cbs_access_ho' or ticket.request_type == 'cbs_access_branch' %}
+                                <span class="me-2">{{ ticket.cbs_assignment_label|default:"Concerned User (CBS Access Provider)" }}: {{ ticket.cbs_assignment_user|default:"Unassigned" }}</span>
+                            {% else %}
+                                <span class="me-2">Assigned: {{ ticket.display_assignee|default:"Unassigned" }}</span>
+                            {% endif %}
                             {% if ticket.department %}
                                 <span class="me-2">Dept: {{ ticket.department }}</span>
                             {% endif %}
@@ -136,7 +140,7 @@
             <p class="text-muted mb-0">No tickets found for the selected search filters.</p>
         {% else %}
             <p class="text-muted mb-3">No tickets are available for you yet.</p>
-            <a href="{% url 'create_ticket' %}" class="btn btn-primary">Create Your First Ticket</a>
+            <a href="{% url 'create_ticket' %}{% if selected_request_type == 'cbs_access' %}?ticket_scope=cbs_access{% endif %}" class="btn btn-primary">Create Your First Ticket</a>
         {% endif %}
     </div>
 {% endif %}

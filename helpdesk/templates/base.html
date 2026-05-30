@@ -750,28 +750,19 @@
                         <a class="side-link {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}" href="{% url 'dashboard' %}">
                             <span class="side-dot"></span><span class="side-label">Dashboard</span>
                         </a>
-                        <a class="side-link {% if request.resolver_match.url_name == 'tech_docs' or request.resolver_match.url_name == 'tech_docs_upload' %}active{% endif %}" href="{% url 'tech_docs' %}">
-                            <span class="side-dot"></span><span class="side-label">Documentation</span>
-                        </a>
-                        <div class="side-subnav">
-                            <a class="side-sub-link {% if request.resolver_match.url_name == 'tech_docs' or request.resolver_match.url_name == 'tech_docs_upload' %}active{% endif %}" href="{% url 'tech_docs' %}">Documents</a>
-                            <a class="side-sub-link {% if request.resolver_match.url_name == 'incident_response_template' %}active{% endif %}" href="{% url 'incident_response_template' %}">Incident Response Template</a>
-                        </div>
-                        <a class="side-link {% if request.resolver_match.url_name == 'ticket_list' %}active{% endif %}" href="{% url 'ticket_list' %}">
-                            <span class="side-dot"></span><span class="side-label">Tickets</span>
-                        </a>
-                        <div class="side-subnav">
-                            <a class="side-sub-link {% if request.resolver_match.url_name == 'ticket_list' and not request.GET.request_type %}active{% endif %}" href="{% url 'ticket_list' %}">All Tickets</a>
-                            <a class="side-sub-link {% if request.resolver_match.url_name == 'ticket_list' and request.GET.request_type == 'incident' %}active{% endif %}" href="{% url 'ticket_list' %}?request_type=incident">Incident Reports</a>
-                            <a class="side-sub-link {% if request.resolver_match.url_name == 'ticket_list' and request.GET.request_type == 'cbs_access' %}active{% endif %}" href="{% url 'ticket_list' %}?request_type=cbs_access">CBS Access Requests</a>
-                        </div>
                         <a class="side-link {% if request.resolver_match.url_name == 'create_ticket' %}active{% endif %}" href="{% url 'create_ticket' %}">
                             <span class="side-dot"></span><span class="side-label">New Ticket</span>
                         </a>
-                        <a class="side-link {% if request.resolver_match.url_name == 'remote_access_request' %}active{% endif %}" href="{% url 'remote_access_request' %}">
-                            <span class="side-dot"></span><span class="side-label">Remote Access Request</span>
+                        <a class="side-link {% if request.resolver_match.url_name == 'ticket_list' %}active{% endif %}" href="{% url 'ticket_list' %}">
+                            <span class="side-dot"></span><span class="side-label">My Tickets</span>
                         </a>
-                        {% if agent_workload_view_enabled and not user.is_staff and not user.is_superuser and not user.is_itsupport %}
+                        <a class="side-link {% if request.resolver_match.url_name == 'tech_docs' or request.resolver_match.url_name == 'tech_docs_upload' or request.resolver_match.url_name == 'incident_response_template' %}active{% endif %}" href="{% url 'tech_docs' %}">
+                            <span class="side-dot"></span><span class="side-label">Documentation</span>
+                        </a>
+                        <a class="side-link {% if request.resolver_match.url_name == 'remote_access_request' %}active{% endif %}" href="{% url 'remote_access_request' %}">
+                            <span class="side-dot"></span><span class="side-label">Remote Access</span>
+                        </a>
+                        {% if agent_workload_view_enabled and not user.is_staff and not user.is_superuser and not user.is_itsupport and not user.is_central_operation %}
                             <a class="side-link {% if request.resolver_match.url_name == 'agent_workload_view' %}active{% endif %}" href="{% url 'agent_workload_view' %}">
                                 <span class="side-dot"></span><span class="side-label">Support Workload View</span>
                             </a>
@@ -780,16 +771,16 @@
                             <a class="side-link {% if request.resolver_match.url_name == 'support_dashboard' or request.resolver_match.url_name == 'support_queue' or request.resolver_match.url_name == 'support_cbs_access_requests' or request.resolver_match.url_name == 'support_incident_tickets' %}active{% endif %}" href="{% url 'support_dashboard' %}">
                                 <span class="side-dot"></span><span class="side-label">IT Portal</span>
                             </a>
-                            <div class="side-subnav">
-                                <a class="side-sub-link {% if request.resolver_match.url_name == 'support_queue' %}active{% endif %}" href="{% url 'support_queue' %}">All Tickets</a>
-                                <a class="side-sub-link {% if request.resolver_match.url_name == 'support_incident_tickets' %}active{% endif %}" href="{% url 'support_incident_tickets' %}">Incident Reports</a>
-                                <a class="side-sub-link {% if request.resolver_match.url_name == 'support_cbs_access_requests' %}active{% endif %}" href="{% url 'support_cbs_access_requests' %}">CBS Access Requests</a>
-                            </div>
                             <a class="side-link {% if request.resolver_match.url_name == 'support_department_tickets' %}active{% endif %}" href="{% url 'support_department_tickets' %}">
-                                <span class="side-dot"></span><span class="side-label">Department Tickets</span>
+                                <span class="side-dot"></span><span class="side-label">Department</span>
                             </a>
                             <a class="side-link {% if request.resolver_match.url_name == 'support_users' %}active{% endif %}" href="{% url 'support_users' %}">
                                 <span class="side-dot"></span><span class="side-label">Users</span>
+                            </a>
+                        {% endif %}
+                        {% if user.is_central_operation %}
+                            <a class="side-link {% if request.resolver_match.url_name == 'support_cbs_access_requests' %}active{% endif %}" href="{% url 'support_cbs_access_requests' %}">
+                                <span class="side-dot"></span><span class="side-label">CBS Access Requests</span>
                             </a>
                         {% endif %}
                         {% if user.is_staff or user.is_superuser %}
@@ -816,31 +807,20 @@
                 <div class="offcanvas-body pt-0">
                     <div class="d-grid gap-2">
                         <a class="side-link" href="{% url 'dashboard' %}"><span class="side-dot"></span><span class="side-label">Dashboard</span></a>
-                        <a class="side-link" href="{% url 'tech_docs' %}"><span class="side-dot"></span><span class="side-label">Documentation</span></a>
-                        <div class="side-subnav">
-                            <a class="side-sub-link" href="{% url 'tech_docs' %}">Documents</a>
-                            <a class="side-sub-link" href="{% url 'incident_response_template' %}">Incident Response Template</a>
-                        </div>
-                        <a class="side-link" href="{% url 'ticket_list' %}"><span class="side-dot"></span><span class="side-label">Tickets</span></a>
-                        <div class="side-subnav">
-                            <a class="side-sub-link" href="{% url 'ticket_list' %}">All Tickets</a>
-                            <a class="side-sub-link" href="{% url 'ticket_list' %}?request_type=incident">Incident Reports</a>
-                            <a class="side-sub-link" href="{% url 'ticket_list' %}?request_type=cbs_access">CBS Access Requests</a>
-                        </div>
                         <a class="side-link" href="{% url 'create_ticket' %}"><span class="side-dot"></span><span class="side-label">New Ticket</span></a>
-                        <a class="side-link" href="{% url 'remote_access_request' %}"><span class="side-dot"></span><span class="side-label">Remote Access Request</span></a>
-                        {% if agent_workload_view_enabled and not user.is_staff and not user.is_superuser and not user.is_itsupport %}
+                        <a class="side-link" href="{% url 'ticket_list' %}"><span class="side-dot"></span><span class="side-label">My Tickets</span></a>
+                        <a class="side-link" href="{% url 'tech_docs' %}"><span class="side-dot"></span><span class="side-label">Documentation</span></a>
+                        <a class="side-link" href="{% url 'remote_access_request' %}"><span class="side-dot"></span><span class="side-label">Remote Access</span></a>
+                        {% if agent_workload_view_enabled and not user.is_staff and not user.is_superuser and not user.is_itsupport and not user.is_central_operation %}
                             <a class="side-link" href="{% url 'agent_workload_view' %}"><span class="side-dot"></span><span class="side-label">Support Workload View</span></a>
                         {% endif %}
                         {% if user.is_staff or user.is_superuser or user.is_itsupport %}
                             <a class="side-link" href="{% url 'support_dashboard' %}"><span class="side-dot"></span><span class="side-label">IT Portal</span></a>
-                            <div class="side-subnav">
-                                <a class="side-sub-link" href="{% url 'support_queue' %}">All Tickets</a>
-                                <a class="side-sub-link" href="{% url 'support_incident_tickets' %}">Incident Reports</a>
-                                <a class="side-sub-link" href="{% url 'support_cbs_access_requests' %}">CBS Access Requests</a>
-                            </div>
-                            <a class="side-link" href="{% url 'support_department_tickets' %}"><span class="side-dot"></span><span class="side-label">Department Tickets</span></a>
+                            <a class="side-link" href="{% url 'support_department_tickets' %}"><span class="side-dot"></span><span class="side-label">Department</span></a>
                             <a class="side-link" href="{% url 'support_users' %}"><span class="side-dot"></span><span class="side-label">Users</span></a>
+                        {% endif %}
+                        {% if user.is_central_operation %}
+                            <a class="side-link" href="{% url 'support_cbs_access_requests' %}"><span class="side-dot"></span><span class="side-label">CBS Access Requests</span></a>
                         {% endif %}
                         {% if user.is_staff or user.is_superuser %}
                             <a class="side-link" href="/admin/"><span class="side-dot"></span><span class="side-label">Admin</span></a>
@@ -869,6 +849,8 @@
                                 <span class="badge-soft chip-muted d-none d-md-inline">Staff</span>
                             {% elif user.is_itsupport %}
                                 <span class="badge-soft chip-primary d-none d-md-inline">IT Support</span>
+                            {% elif user.is_central_operation %}
+                                <span class="badge-soft chip-warning d-none d-md-inline">Central Operation</span>
                             {% endif %}
 
                             <div class="dropdown">
@@ -879,7 +861,7 @@
                                     <span class="d-none d-md-flex flex-column text-start">
                                         <span class="profile-name">{{ user.get_full_name|default:user.username }}</span>
                                         <span class="profile-meta-inline">
-                                            {% if user.department %}{{ user.department }}{% endif %}{% if user.department and user.branch %} • {% endif %}{% if user.branch %}{{ user.branch }}{% endif %}
+                                            {% if user.department %}{{ user.department }}{% endif %}{% if user.department and user.branch_profile_display %} • {% endif %}{% if user.branch_profile_display %}{{ user.branch_profile_display }}{% endif %}
                                         </span>
                                     </span>
                                 </button>
@@ -888,7 +870,7 @@
                                         <div class="fw-bold">{{ user.get_full_name|default:user.username }}</div>
                                         <div class="ticket-meta">{{ user.email|default:"-" }}</div>
                                         <div class="ticket-meta">
-                                            {% if user.department %}{{ user.department }}{% endif %}{% if user.department and user.branch %} • {% endif %}{% if user.branch %}{{ user.branch }}{% endif %}
+                                            {% if user.department %}{{ user.department }}{% endif %}{% if user.department and user.branch_profile_display %} • {% endif %}{% if user.branch_profile_display %}{{ user.branch_profile_display }}{% endif %}
                                         </div>
                                     </li>
                                     <li><hr class="dropdown-divider my-2"></li>
@@ -899,7 +881,7 @@
                                     <li><a class="dropdown-item" href="{% url 'ticket_list' %}?request_type=incident">Incident Reports</a></li>
                                     <li><a class="dropdown-item" href="{% url 'ticket_list' %}?request_type=cbs_access">CBS Access Requests</a></li>
                                     <li><a class="dropdown-item" href="{% url 'remote_access_request' %}">Remote Access Request</a></li>
-                                    {% if agent_workload_view_enabled and not user.is_staff and not user.is_superuser and not user.is_itsupport %}
+                                    {% if agent_workload_view_enabled and not user.is_staff and not user.is_superuser and not user.is_itsupport and not user.is_central_operation %}
                                         <li><a class="dropdown-item" href="{% url 'agent_workload_view' %}">Support Workload View</a></li>
                                     {% endif %}
                                     {% if user.is_staff or user.is_superuser or user.is_itsupport %}
@@ -909,6 +891,9 @@
                                         <li><a class="dropdown-item" href="{% url 'support_cbs_access_requests' %}">CBS Access Requests</a></li>
                                         <li><a class="dropdown-item" href="{% url 'support_department_tickets' %}">Department Tickets</a></li>
                                         <li><a class="dropdown-item" href="{% url 'support_users' %}">Users</a></li>
+                                    {% endif %}
+                                    {% if user.is_central_operation and not user.is_staff and not user.is_superuser and not user.is_itsupport %}
+                                        <li><a class="dropdown-item" href="{% url 'support_cbs_access_requests' %}">CBS Access Requests</a></li>
                                     {% endif %}
                                     {% if user.is_staff or user.is_superuser %}
                                         <li><a class="dropdown-item" href="/admin/">Admin</a></li>

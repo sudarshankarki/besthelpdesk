@@ -5,7 +5,7 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from tickets.models import Ticket
-from tickets.purge import purge_ticket_conversation
+from tickets.purge import NEVER_PURGE_REQUEST_TYPES, purge_ticket_conversation
 
 
 class Command(BaseCommand):
@@ -33,7 +33,11 @@ class Command(BaseCommand):
             return
 
         cutoff = timezone.now() - timedelta(days=days)
-        tickets = Ticket.objects.filter(status="new", created_at__lt=cutoff).only("id")
+        tickets = (
+            Ticket.objects.filter(status="new", created_at__lt=cutoff)
+            .exclude(request_type__in=NEVER_PURGE_REQUEST_TYPES)
+            .only("id")
+        )
         ticket_ids = list(tickets.values_list("id", flat=True))
 
         if dry_run:

@@ -77,6 +77,7 @@ services:
       - ./helpdesk/.env
     environment:
       DJANGO_DEBUG: "False"
+      DJANGO_ALLOWED_HOSTS: "*"
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
       USE_REDIS_CHANNEL_LAYER: "True"

@@ -1,0 +1,631 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>BestSupport Application Workflow Documentation</title>
+  <style>
+    @page { margin: 22mm 18mm; }
+    body {
+      color: #1f2933;
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 12px;
+      line-height: 1.45;
+      margin: 0;
+    }
+    h1, h2, h3 {
+      color: #102a43;
+      line-height: 1.2;
+      margin: 0 0 8px;
+    }
+    h1 {
+      border-bottom: 2px solid #486581;
+      font-size: 26px;
+      padding-bottom: 10px;
+    }
+    h2 {
+      border-bottom: 1px solid #bcccdc;
+      font-size: 18px;
+      margin-top: 24px;
+      padding-bottom: 5px;
+    }
+    h3 {
+      font-size: 14px;
+      margin-top: 16px;
+    }
+    p { margin: 0 0 9px; }
+    ul, ol {
+      margin: 6px 0 12px 18px;
+      padding: 0;
+    }
+    li { margin: 3px 0; }
+    code {
+      background: #f0f4f8;
+      border-radius: 3px;
+      color: #243b53;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 11px;
+      padding: 1px 4px;
+    }
+    table {
+      border-collapse: collapse;
+      margin: 10px 0 16px;
+      page-break-inside: auto;
+      width: 100%;
+    }
+    tr {
+      page-break-inside: avoid;
+      page-break-after: auto;
+    }
+    th, td {
+      border: 1px solid #d9e2ec;
+      padding: 6px 7px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: #e6eef6;
+      color: #102a43;
+      font-weight: 700;
+    }
+    .meta {
+      color: #52606d;
+      font-size: 11px;
+      margin: 8px 0 18px;
+    }
+    .note {
+      background: #f5f7fa;
+      border-left: 4px solid #627d98;
+      margin: 12px 0;
+      padding: 8px 10px;
+    }
+    .page-break { break-before: page; }
+  </style>
+</head>
+<body>
+  <h1>BestSupport Application Workflow Documentation</h1>
+  <p class="meta">Scope: application logic only. </p>
+  <h2>1. Application Purpose</h2>
+  <p>
+    BestSupport is a Django helpdesk application for creating, assigning, approving, discussing,
+    resolving, and closing support work. The main business flows are normal helpdesk tickets,
+    CBS access requests, remote access requests, incident reports, ticket chat, audio-call signaling,
+    technical documents, and portal announcements.
+  </p>
+
+  <h2>2. Main Application Areas</h2>
+  <table>
+    <thead>
+      <tr><th>Area</th><th>Main Files</th><th>Business Responsibility</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Project shell</td>
+        <td><code>helpdesk/helpdesk/urls.py</code>, <code>health.py</code>, <code>asgi.py</code></td>
+        <td>Root URL routing, health endpoints, and HTTP/WebSocket application entry points.</td>
+      </tr>
+      <tr>
+        <td>Accounts</td>
+        <td><code>accounts/models.py</code>, <code>forms.py</code>, <code>views.py</code>, <code>backends.py</code></td>
+        <td>User profile data, authentication, signup, password reset, branches, departments, and active-session tracking.</td>
+      </tr>
+      <tr>
+        <td>Tickets</td>
+        <td><code>tickets/models.py</code>, <code>forms.py</code>, <code>views.py</code>, <code>consumers.py</code></td>
+        <td>Ticket lifecycle, approvals, incident reports, chat, calls, queues, documents, notifications, and status changes.</td>
+      </tr>
+      <tr>
+        <td>Templates</td>
+        <td><code>templates/base.html</code>, <code>templates/tickets/*.html</code>, <code>templates/accounts/*.html</code></td>
+        <td>User-facing pages rendered by the account and ticket views.</td>
+      </tr>
+      <tr>
+        <td>Static UI</td>
+        <td><code>static/css/local-ui.css</code>, <code>static/js/local-ui.js</code></td>
+        <td>Shared interface styling and small browser-side behavior.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>3. Request Routing Flow</h2>
+  <ol>
+    <li>A browser request reaches Django.</li>
+    <li><code>helpdesk/helpdesk/urls.py</code> routes it to admin, accounts, tickets, health, or the root login redirect.</li>
+    <li>Account routes are handled through <code>accounts.urls</code>; ticket routes are handled through <code>tickets.urls</code>.</li>
+    <li>The matched view validates login state, permissions, form data, and model state.</li>
+    <li>The view reads or updates models, sends notifications or email when needed, and renders a template or redirects.</li>
+    <li>For live chat, audio-call signaling, and browser notifications, WebSocket requests are routed through <code>tickets/routing.py</code> to consumers in <code>tickets/consumers.py</code>.</li>
+  </ol>
+
+  <h2>4. Key Models</h2>
+  <table>
+    <thead>
+      <tr><th>Model</th><th>App Logic Role</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>CustomUser</code></td><td>User account plus support flags, Central Operation flag, branch, department, position, phone, and signature image.</td></tr>
+      <tr><td><code>Branch</code></td><td>Named branch records used for user profiles, ticket routing, and document visibility.</td></tr>
+      <tr><td><code>Department</code></td><td>Named departments used for ticket routing, support queues, and document visibility.</td></tr>
+      <tr><td><code>Ticket</code></td><td>Main work item. Stores requester, assignee, request type, subject, description, branch, department, priority, status, resolution, closure, chat privacy, and display helpers.</td></tr>
+      <tr><td><code>RemoteAccessApproval</code></td><td>Approval record for remote access and CBS access requests. Tracks requester, recommender, second recommender, approver, signatures, status, and decision notes.</td></tr>
+      <tr><td><code>TicketMessage</code></td><td>Text message in a ticket conversation.</td></tr>
+      <tr><td><code>TicketMessageAttachment</code></td><td>File metadata linked to a ticket chat message, including browser-viewable image/PDF helpers.</td></tr>
+      <tr><td><code>TicketChatReadState</code></td><td>Tracks when each user last saw chat messages for unread indicators.</td></tr>
+      <tr><td><code>TicketAssignmentLog</code></td><td>Assignment and ownership history for reporting and display.</td></tr>
+      <tr><td><code>IncidentReport</code></td><td>Structured incident report linked to an incident ticket, including report fields, signers, signatures, submission, correction, and commander data.</td></tr>
+      <tr><td><code>IncidentReportSignoff</code></td><td>Ordered signoff rows for notified incident report reviewers.</td></tr>
+      <tr><td><code>IncidentReportAttachment</code></td><td>Evidence file metadata linked directly to an incident report.</td></tr>
+      <tr><td><code>TechnicalDocument</code></td><td>Knowledge/document entry with branch, department, support-only, or restricted visibility.</td></tr>
+      <tr><td><code>PortalFlashAnnouncement</code></td><td>Login/portal announcement shown to users during a configured schedule.</td></tr>
+      <tr><td><code>GroupMailboxEmail</code></td><td>Shared mailbox mapping used for department-aware ticket email behavior.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>5. Account Workflow</h2>
+  <ol>
+    <li>A user signs in through <code>/accounts/login/</code>.</li>
+    <li><code>login_view</code> authenticates through the configured authentication backend.</li>
+    <li>After login, users are redirected into the ticket/dashboard area.</li>
+    <li>Signup and password reset routes are controlled by authentication feature flags.</li>
+    <li>User department, branch, support role, Central Operation role, and signature image affect permissions throughout ticket, CBS, and incident workflows.</li>
+  </ol>
+
+  <h2 class="page-break">6. Normal Ticket Workflow</h2>
+  <ol>
+    <li>User opens <code>/tickets/new/</code>.</li>
+    <li><code>create_ticket</code> builds <code>TicketForm</code> for the current user.</li>
+    <li>The form validates request type, department, branch, notify email, assignment email, impact, urgency, CC emails, and attachments.</li>
+    <li>On valid submit, a <code>Ticket</code> is created with a generated ticket ID and calculated priority.</li>
+    <li>If an assignment email is supplied, the matching user becomes the assignee. If only notify email is supplied, that address receives notification but does not own the ticket.</li>
+    <li>Department users can see department-routed tickets and may claim unassigned tickets when allowed.</li>
+    <li>Support users work tickets through support queues and the ticket update page.</li>
+    <li>Resolved tickets record resolution note, resolved user, resolved timestamp, and email the requester with a close link.</li>
+    <li>Closed tickets become read-only for chat and cannot be reopened through the normal ticket panel.</li>
+  </ol>
+
+  <h2>7. Ticket Status Rules</h2>
+  <table>
+    <thead>
+      <tr><th>Status Area</th><th>Important Rule</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Assignment</td><td>Unassigned department tickets may be claimed by eligible department users. Created-by users cannot claim their own ticket unless they are also assigned through the workflow.</td></tr>
+      <tr><td>Resolution</td><td>A ticket must be assigned before it can be resolved. Normally, only the assigned agent can mark it resolved.</td></tr>
+      <tr><td>Closure</td><td>A ticket can be closed only after it is resolved. Closing is restricted to an admin user or effective assignee.</td></tr>
+      <tr><td>Resolved/closed reopening</td><td>Resolved and closed tickets cannot be reopened through the normal ticket update panel.</td></tr>
+      <tr><td>Incident resolution</td><td>Incident tickets require required incident report conditions before resolution is accepted.</td></tr>
+      <tr><td>Approved CBS resolution</td><td>When an approved CBS access request is resolved, document sending, ticket update, and new chat messages are locked.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>8. Ticket Detail Page</h2>
+  <p><code>ticket_detail</code> is the central page for a ticket. Its context decides which blocks and actions the user can see.</p>
+  <table>
+    <thead>
+      <tr><th>Context Area</th><th>What It Controls</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Requester info</td><td>Shows requester details when the user is allowed to see them.</td></tr>
+      <tr><td>Approval data</td><td>Shows remote access or CBS access request details, signatures, status, and reviewer actions.</td></tr>
+      <tr><td>Incident data</td><td>Shows incident report availability, edit/view actions, and download actions.</td></tr>
+      <tr><td>Chat state</td><td>Loads visible chat messages, unread state, lock message, upload limits, and WebSocket settings.</td></tr>
+      <tr><td>Action flags</td><td>Controls buttons such as update ticket, claim ticket, approve/reject, assign approved CBS access, send approved document, and manage chat privacy.</td></tr>
+      <tr><td>Attachments</td><td>Shows ticket-level image attachment, chat attachments, CBS request attachments, and incident evidence links according to permissions.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>9. Chat and Call Workflow</h2>
+  <ol>
+    <li>Ticket detail renders the <code>Ticket Chat</code> panel if the current user has chat access.</li>
+    <li><code>can_access_ticket_chat</code> decides chat membership.</li>
+    <li>Normal ticket chat membership is based on requester, assignee, support/admin users, department membership, and private-chat settings.</li>
+    <li>CBS access request chat membership is based on requester, assignee, current approval-chain users, users who already acted, Central Operation, IT support, and admins.</li>
+    <li>Remote access approval requests that are not CBS access requests do not use ticket chat.</li>
+    <li>Chat messages are sent over <code>TicketChatConsumer</code>, saved as <code>TicketMessage</code>, and broadcast to connected participants.</li>
+    <li>Attachments are uploaded by the ticket attachment upload view and then announced in the chat stream.</li>
+    <li>Audio calls use <code>TicketCallConsumer</code> only for signaling. Call permission follows the same chat access helper.</li>
+    <li>Closed tickets disable chat and file upload. Approved CBS access requests also disable chat after the linked ticket is resolved.</li>
+  </ol>
+
+  <h2>10. CBS Access Request Workflow</h2>
+  <ol>
+    <li>Head Office requests start at <code>/tickets/cbs-access-request/</code>.</li>
+    <li>Branch requests start at <code>/tickets/cbs-access-request/branch/</code>.</li>
+    <li>Both routes use the CBS access request view logic with office-specific fields.</li>
+    <li><code>CBSAccessRequestForm</code> validates requester details, access user, user groups, endorsement, recommender, second recommender for branch requests, approver, and attachments.</li>
+    <li>The app creates a ticket and linked <code>RemoteAccessApproval</code>.</li>
+    <li>The current reviewer can recommend or reject. Branch requests can require a second recommendation before final approval.</li>
+    <li>Central Operation can adjust the signoff chain before final approval when allowed.</li>
+    <li>When final approval is recorded, the approved CBS document is generated from saved request and approval data.</li>
+    <li>The requester can assign the approved request to a concerned user and email the signed document while the ticket is still open.</li>
+    <li>After final approval and ticket resolution, CBS document sending and ticket status editing are locked.</li>
+  </ol>
+
+  <h3>CBS Chat Membership</h3>
+  <table>
+    <thead>
+      <tr><th>User Type</th><th>Chat Access</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Requester</td><td>Can participate.</td></tr>
+      <tr><td>Assigned user</td><td>Can participate.</td></tr>
+      <tr><td>Current recommender, second recommender, approver</td><td>Can participate while they are in the current approval chain.</td></tr>
+      <tr><td>Users who already recommended, second-recommended, or approved</td><td>Keep access as historical actors.</td></tr>
+      <tr><td>Central Operation</td><td>Can participate for CBS access tickets.</td></tr>
+      <tr><td>IT support/admin</td><td>Can participate.</td></tr>
+      <tr><td>Removed reviewer who never acted</td><td>Does not keep chat access after being removed from the chain.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>11. Remote Access Request Workflow</h2>
+  <ol>
+    <li>User opens <code>/tickets/remote-access-request/</code>.</li>
+    <li><code>RemoteAccessRequestForm</code> validates subject, details, recommender, and approver.</li>
+    <li>The app creates a ticket and a linked <code>RemoteAccessApproval</code>.</li>
+    <li>The approval record tracks pending recommendation, pending approval, approved, or rejected state.</li>
+    <li>Reviewer decisions are handled by <code>remote_access_approval_update</code>.</li>
+    <li>Remote access approval requests do not use the normal ticket chat flow.</li>
+  </ol>
+
+  <h2 class="page-break">12. Incident Report Workflow</h2>
+  <ol>
+    <li>An incident ticket can have a linked <code>IncidentReport</code>.</li>
+    <li><code>ticket_incident_report</code> renders and processes the report form.</li>
+    <li>Support users, the requester, and the incident commander can manage the report when allowed.</li>
+    <li>The report tracks incident information, containment, recovery, lessons learned, action plan, notification data, and evidence notes.</li>
+    <li>Evidence files are listed with view/download actions when the current user can access the incident report.</li>
+    <li>Registered user and notified signoff users sign in sequence according to the saved signoff rows.</li>
+    <li>Incident reports can be saved as draft, submitted, sent to reviewers/approvers, corrected, or locked depending on state.</li>
+    <li>Incident ticket resolution is blocked until required report and signature conditions are complete.</li>
+  </ol>
+
+  <h3>Incident Report Access</h3>
+  <table>
+    <thead>
+      <tr><th>User Type</th><th>Access</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Ticket participant</td><td>Can view the incident report.</td></tr>
+      <tr><td>Incident commander</td><td>Can view and manage where allowed.</td></tr>
+      <tr><td>Registered user</td><td>Can view/sign according to role.</td></tr>
+      <tr><td>Notified user or signoff user</td><td>Can view/sign according to sequence.</td></tr>
+      <tr><td>Support/admin</td><td>Can view and manage according to support permissions.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>13. Technical Documents Workflow</h2>
+  <ol>
+    <li>Users open <code>/tickets/docs/</code> to see documents visible to them.</li>
+    <li>Support users can upload documents through <code>tech_docs_upload</code>.</li>
+    <li>Visibility can be public, branch-based, department-based, restricted to selected users, or support-only.</li>
+    <li>View and download actions check document visibility before serving content.</li>
+    <li>Supported spreadsheet documents can be previewed in a browser-friendly table view.</li>
+  </ol>
+
+  <h2>14. Portal Flash Announcements</h2>
+  <ol>
+    <li>Support/admin users upload announcements through the portal flash upload page.</li>
+    <li>Each announcement has title, message, image, visibility, and schedule fields.</li>
+    <li>Active announcements are shown to users after login according to schedule and visibility rules.</li>
+  </ol>
+
+  <h2>15. Support Queues</h2>
+  <table>
+    <thead>
+      <tr><th>Queue</th><th>Purpose</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>support_dashboard</code></td><td>High-level support dashboard with counts, workload, and recent tickets.</td></tr>
+      <tr><td><code>support_queue</code></td><td>Main ticket queue with filters for ticket ID, status, priority, requester, assignee, branch, department, and dates.</td></tr>
+      <tr><td><code>support_department_tickets</code></td><td>Department-focused view split into unassigned, assigned, and solved groups.</td></tr>
+      <tr><td><code>support_cbs_access_requests</code></td><td>CBS-specific request queue for support/Central Operation users.</td></tr>
+      <tr><td><code>support_incident_tickets</code></td><td>Incident-specific support queue.</td></tr>
+      <tr><td><code>support_users</code></td><td>Currently logged-in users and related support visibility.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>16. Important URL Groups</h2>
+  <table>
+    <thead>
+      <tr><th>URL Pattern</th><th>Business Use</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>/tickets/</code></td><td>My Tickets list.</td></tr>
+      <tr><td><code>/tickets/new/</code></td><td>Create normal ticket.</td></tr>
+      <tr><td><code>/tickets/&lt;ticket_id&gt;/</code></td><td>Ticket detail page.</td></tr>
+      <tr><td><code>/tickets/support/&lt;ticket_id&gt;/update/</code></td><td>Ticket assignment/status update.</td></tr>
+      <tr><td><code>/tickets/&lt;ticket_id&gt;/claim/</code></td><td>Claim eligible department ticket.</td></tr>
+      <tr><td><code>/tickets/&lt;ticket_id&gt;/attachments/upload/</code></td><td>Add file to ticket chat.</td></tr>
+      <tr><td><code>/tickets/&lt;ticket_id&gt;/attachments/&lt;attachment_id&gt;/view/</code></td><td>View supported ticket attachment inline.</td></tr>
+      <tr><td><code>/tickets/&lt;ticket_id&gt;/attachments/&lt;attachment_id&gt;/download/</code></td><td>Download ticket attachment.</td></tr>
+      <tr><td><code>/tickets/cbs-access-request/</code></td><td>Create Head Office CBS access request.</td></tr>
+      <tr><td><code>/tickets/cbs-access-request/branch/</code></td><td>Create Branch CBS access request.</td></tr>
+      <tr><td><code>/tickets/&lt;ticket_id&gt;/remote-access-approval/</code></td><td>Recommend, approve, or reject remote/CBS request.</td></tr>
+      <tr><td><code>/tickets/&lt;ticket_id&gt;/cbs-access-request/send-document/</code></td><td>Email approved CBS document while allowed.</td></tr>
+      <tr><td><code>/tickets/&lt;ticket_id&gt;/incident-report/</code></td><td>Create, view, edit, submit, or sign incident report.</td></tr>
+      <tr><td><code>/tickets/docs/</code></td><td>Technical document list.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>17. Developer Takeover Map</h2>
+  <p>
+    A new developer should treat <code>tickets/views.py</code> as the main business-orchestration file and
+    <code>tickets/models.py</code> as the source of workflow state and permission helper behavior. Templates
+    decide what the user sees, but important permissions must also be enforced in views and consumers.
+  </p>
+  <table>
+    <thead>
+      <tr><th>Need To Change</th><th>Start Here</th><th>Then Check</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Ticket creation fields or validation</td>
+        <td><code>tickets/forms.py</code> &rarr; <code>TicketForm</code></td>
+        <td><code>tickets/views.py</code> &rarr; <code>create_ticket</code>, then <code>templates/tickets/create_ticket.html</code></td>
+      </tr>
+      <tr>
+        <td>Ticket detail actions or visibility</td>
+        <td><code>tickets/views.py</code> &rarr; <code>_build_ticket_detail_context</code></td>
+        <td><code>templates/tickets/ticket_detail.html</code></td>
+      </tr>
+      <tr>
+        <td>Support status update rules</td>
+        <td><code>tickets/views.py</code> &rarr; <code>_ticket_update_protected</code></td>
+        <td><code>tickets/forms.py</code> &rarr; <code>TicketUpdateForm</code>, <code>TicketAssigneeUpdateForm</code></td>
+      </tr>
+      <tr>
+        <td>Chat access or notification participants</td>
+        <td><code>tickets/models.py</code> &rarr; <code>can_access_ticket_chat</code>, <code>get_ticket_chat_access_user_ids</code></td>
+        <td><code>tickets/consumers.py</code>, <code>tickets/notifications.py</code>, <code>tickets/chat_rules.py</code></td>
+      </tr>
+      <tr>
+        <td>CBS access request fields</td>
+        <td><code>tickets/forms.py</code> &rarr; <code>CBSAccessRequestForm</code></td>
+        <td><code>tickets/views.py</code> CBS helper functions and <code>templates/tickets/cbs_access_request.html</code></td>
+      </tr>
+      <tr>
+        <td>CBS approval-chain behavior</td>
+        <td><code>tickets/views.py</code> &rarr; <code>remote_access_approval_update</code>, <code>cbs_access_signoff_chain_update</code></td>
+        <td><code>RemoteAccessApproval</code> in <code>tickets/models.py</code></td>
+      </tr>
+      <tr>
+        <td>Incident report fields or signoff behavior</td>
+        <td><code>tickets/forms.py</code> &rarr; <code>IncidentReportForm</code></td>
+        <td><code>tickets/views.py</code> incident helper functions and <code>templates/tickets/incident_report.html</code></td>
+      </tr>
+      <tr>
+        <td>Document visibility rules</td>
+        <td><code>tickets/views.py</code> &rarr; <code>_can_view_tech_doc</code>, <code>_tech_doc_visibility_q</code></td>
+        <td><code>TechnicalDocument</code> in <code>tickets/models.py</code></td>
+      </tr>
+      <tr>
+        <td>User role/profile behavior</td>
+        <td><code>accounts/models.py</code> &rarr; <code>CustomUser</code>, <code>Department</code>, <code>Branch</code></td>
+        <td><code>accounts/views.py</code>, <code>accounts/admin.py</code>, and relevant ticket permission helpers</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>18. Permission Helpers and Access Rules</h2>
+  <p>
+    The project relies on small helper functions instead of scattering permission logic everywhere.
+    When changing access behavior, update the helper and then confirm every direct URL path still enforces it.
+  </p>
+  <table>
+    <thead>
+      <tr><th>Helper</th><th>Location</th><th>Used For</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>_is_support_user</code></td><td><code>tickets/views.py</code></td><td>Identifies staff, superusers, and IT support users for support queues/actions.</td></tr>
+      <tr><td><code>_is_central_operation_user</code></td><td><code>tickets/views.py</code></td><td>Identifies Central Operation users for CBS-specific visibility and actions.</td></tr>
+      <tr><td><code>_is_ticket_participant</code></td><td><code>tickets/views.py</code></td><td>Controls ticket detail and attachment access for requester, assignee, support, department members, CBS reviewers, and incident actors.</td></tr>
+      <tr><td><code>can_access_ticket_chat</code></td><td><code>tickets/models.py</code></td><td>Controls chat, call signaling, chat message visibility, upload, delete, seen state, and WebSocket connection.</td></tr>
+      <tr><td><code>get_ticket_chat_access_user_ids</code></td><td><code>tickets/models.py</code></td><td>Builds chat and call notification target users.</td></tr>
+      <tr><td><code>can_manage_ticket_chat_privacy</code></td><td><code>tickets/models.py</code></td><td>Controls whether a ticket's private-chat setting can be changed. Approval tickets do not expose this setting.</td></tr>
+      <tr><td><code>_can_access_incident_report</code></td><td><code>tickets/views.py</code></td><td>Controls incident report pages, evidence attachments, signatures, and report downloads.</td></tr>
+      <tr><td><code>_can_manage_incident_report</code></td><td><code>tickets/views.py</code></td><td>Controls who can create/update incident report content.</td></tr>
+      <tr><td><code>_can_decide_remote_access_approval</code></td><td><code>tickets/views.py</code></td><td>Controls recommend/approve/reject buttons and POST behavior for remote/CBS approvals.</td></tr>
+      <tr><td><code>_can_manage_cbs_access_signoff_chain</code></td><td><code>tickets/views.py</code></td><td>Controls Central Operation signoff-chain changes before final CBS approval.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Permission Change Rule</h3>
+  <ol>
+    <li>Never rely only on hiding a button in a template.</li>
+    <li>Enforce the same rule in the view handling the direct URL or POST.</li>
+    <li>If WebSockets are involved, enforce the rule in the consumer access check too.</li>
+    <li>If files are involved, enforce the rule on both view and download URLs.</li>
+    <li>Add tests for both successful access and blocked access.</li>
+  </ol>
+
+  <h2>19. State Machines and Business Status</h2>
+  <h3>Ticket Status</h3>
+  <table>
+    <thead>
+      <tr><th>Status</th><th>Meaning</th><th>Important Behavior</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>new</code></td><td>Ticket has been created and is waiting for action.</td><td>Visible in queues according to owner/department/role.</td></tr>
+      <tr><td><code>acknowledged</code></td><td>Someone has seen/accepted the work but it is not yet in progress.</td><td>Still active.</td></tr>
+      <tr><td><code>in_progress</code></td><td>Work is actively being handled.</td><td>Active support workflow.</td></tr>
+      <tr><td><code>waiting_on_user</code></td><td>Support is waiting for requester/user input.</td><td>Active but blocked externally.</td></tr>
+      <tr><td><code>waiting_on_third_party</code></td><td>Support is waiting for outside/vendor/team input.</td><td>Active but blocked externally.</td></tr>
+      <tr><td><code>resolved</code></td><td>Support considers the issue fixed.</td><td>Requester receives email with close link. CBS approved requests become locked for document sending and status editing.</td></tr>
+      <tr><td><code>closed</code></td><td>Ticket is complete.</td><td>Chat and uploads are disabled. Normal panel cannot reopen.</td></tr>
+      <tr><td><code>cancelled_duplicate</code></td><td>Ticket was cancelled as duplicate/not needed.</td><td>Treated as a solved state in queues.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Remote/CBS Approval Status</h3>
+  <table>
+    <thead>
+      <tr><th>Status</th><th>Meaning</th><th>Typical Next Step</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>pending_recommendation</code></td><td>Request is waiting for first or second recommendation.</td><td>Current recommender approves or rejects.</td></tr>
+      <tr><td><code>pending_approval</code></td><td>Required recommendation stage is done; final approver must decide.</td><td>Approver approves or rejects.</td></tr>
+      <tr><td><code>approved</code></td><td>Final approval is complete.</td><td>CBS request can be assigned/processed while ticket remains open.</td></tr>
+      <tr><td><code>rejected</code></td><td>Reviewer rejected the request.</td><td>Requester can correct/resubmit if workflow allows.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Incident Report State</h3>
+  <table>
+    <thead>
+      <tr><th>State</th><th>How It Is Represented</th><th>Effect</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Draft</td><td>Report exists but is not submitted.</td><td>Allowed managers can edit report fields and evidence.</td></tr>
+      <tr><td>Waiting for signatures</td><td>Required signature fields or signoff rows are incomplete.</td><td>Submit/resolution may be blocked until signatures are complete.</td></tr>
+      <tr><td>Submitted</td><td><code>submitted_at</code> and <code>submitted_by</code> are set.</td><td>Report is treated as formally sent/submitted.</td></tr>
+      <tr><td>Correction requested</td><td>Correction fields are set.</td><td>Report can be returned for changes depending on role and lock rules.</td></tr>
+      <tr><td>Finalized/locked</td><td>Workflow lock helpers determine finality.</td><td>Editing is blocked through normal views.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>20. Detailed Workflow: Normal Ticket</h2>
+  <ol>
+    <li>User opens the create ticket page.</li>
+    <li>The form preloads user context such as available departments, branches, and support routing options.</li>
+    <li>User selects request type, department/branch, impact, urgency, notify email, assignment email, CC emails, description, and optional attachments.</li>
+    <li>The form validates email behavior. Assignment email must map to a real user and must not be a group mailbox. Notify email can be individual or shared mailbox according to rules.</li>
+    <li>Priority is calculated from impact and urgency.</li>
+    <li>The ticket is created with requester set to the current user.</li>
+    <li>Assignment is applied if requested. Otherwise, department routing and support queues determine visibility.</li>
+    <li>Notification email is sent to configured recipients.</li>
+    <li>Requester lands on the ticket detail or list page and can continue in chat.</li>
+    <li>Support users pick up work from support queues, claim if eligible, update status, and resolve/close according to rules.</li>
+  </ol>
+
+  <h2>21. Detailed Workflow: CBS Access Request</h2>
+  <ol>
+    <li>Requester opens either Head Office or Branch CBS request form.</li>
+    <li>The form captures user details, requested CBS user groups, request type, amendment reason where applicable, access user, signoff users, and supporting attachments.</li>
+    <li>On submit, the app creates a ticket with request type <code>cbs_access</code> or <code>cbs_access_branch</code>.</li>
+    <li>The app creates a linked <code>RemoteAccessApproval</code> with recommender, optional second recommender, and approver.</li>
+    <li>The request detail appears inside the ticket detail page using saved ticket and approval data.</li>
+    <li>The current reviewer receives the request and can recommend/reject.</li>
+    <li>For branch requests, a second recommendation can be required before final approval.</li>
+    <li>The final approver approves or rejects.</li>
+    <li>Approved request displays signed approval information and allows allowed users to send/assign the approved document while the ticket remains active.</li>
+    <li>CBS request chat is available to current chain users, historical signers, requester, assignee, Central Operation, support, and admins.</li>
+    <li>If Central Operation changes the chain before a reviewer acts, the old reviewer loses chat access. If the old reviewer already acted, they keep access as a historical signer.</li>
+    <li>Once approved and the linked ticket is resolved, approved document sending, ticket update, and new chat messages are locked.</li>
+  </ol>
+
+  <h2>22. Detailed Workflow: Incident Report</h2>
+  <ol>
+    <li>Incident ticket is created or selected.</li>
+    <li>Allowed user opens the incident report page from ticket detail.</li>
+    <li>The report form captures incident timeline, service impact, branch impact, containment, recovery, root cause, lessons learned, recommendations, notification details, and action plan.</li>
+    <li>Evidence files can be uploaded and later viewed/downloaded by users who can access the incident report.</li>
+    <li>Registered user signature is copied from the user's profile signature when available.</li>
+    <li>Notified signoff rows define ordered reviewers/signers.</li>
+    <li>Signoff users can sign or reject according to sequence and role.</li>
+    <li>Submit sends the report to configured recipients when required fields/signatures are complete.</li>
+    <li>Incident ticket resolution checks report completion rules first.</li>
+    <li>After finalization, normal editing is blocked.</li>
+  </ol>
+
+  <h2>23. File View and Download Logic</h2>
+  <p>
+    This section documents only application permission behavior for files. It does not describe file backend
+    implementation or infrastructure.
+  </p>
+  <table>
+    <thead>
+      <tr><th>File Type</th><th>Where User Sees It</th><th>Access Rule</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Ticket image</td><td>Ticket detail attachment block</td><td>Visible to ticket participants.</td></tr>
+      <tr><td>Ticket message attachment</td><td>Ticket chat and CBS attachment list</td><td>Visible to chat participants. CBS access request participants can view request attachments even if they are not normal chat users.</td></tr>
+      <tr><td>Incident evidence attachment</td><td>Incident report page</td><td>Visible to users who can access the incident report.</td></tr>
+      <tr><td>Technical document</td><td>Technical documents page</td><td>Visible according to document visibility: public, branch, department, restricted, or support-only.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>24. Email and Notification Logic</h2>
+  <table>
+    <thead>
+      <tr><th>Trigger</th><th>What Happens</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Ticket created</td><td>Requester/support recipients receive new ticket notification based on assignment and notify-email rules.</td></tr>
+      <tr><td>Ticket assigned</td><td>Assigned user is notified and may receive assignment email.</td></tr>
+      <tr><td>Ticket resolved</td><td>Requester receives resolution email with close link, resolution details, optional CC, and optional resolved-email attachments.</td></tr>
+      <tr><td>Ticket chat message</td><td>Eligible chat participants except the sender receive browser notification payloads.</td></tr>
+      <tr><td>Ticket audio call</td><td>Eligible chat/call participants receive incoming call notification payloads.</td></tr>
+      <tr><td>Remote/CBS approval stage changes</td><td>Current reviewer or approver receives email/notification where configured.</td></tr>
+      <tr><td>Approved CBS request assigned</td><td>Concerned user receives assignment email with signed document attached.</td></tr>
+      <tr><td>Incident report submit/signoff</td><td>Relevant reviewers, approvers, signers, and CC recipients receive report-related email/notification.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>25. Template Ownership</h2>
+  <table>
+    <thead>
+      <tr><th>Template</th><th>Purpose</th><th>Key Context Variables</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>templates/base.html</code></td><td>Global layout, sidebar, header, notifications, and shared page frame.</td><td>User, auth flags, active navigation, flash announcements.</td></tr>
+      <tr><td><code>templates/tickets/ticket_list.html</code></td><td>User ticket list and filters.</td><td><code>tickets</code>, selected filters, unread flags, claim/update flags.</td></tr>
+      <tr><td><code>templates/tickets/create_ticket.html</code></td><td>Normal ticket create form.</td><td><code>form</code>, field choices, validation errors.</td></tr>
+      <tr><td><code>templates/tickets/ticket_detail.html</code></td><td>Main ticket detail, CBS details, incident link, chat, attachments, assignment history, and actions.</td><td><code>ticket</code>, <code>remote_access_approval</code>, <code>can_update_ticket</code>, <code>can_view_chat</code>, <code>chat_messages</code>, <code>ticket_attachments</code>, CBS/incident flags.</td></tr>
+      <tr><td><code>templates/tickets/ticket_update.html</code></td><td>Support/assignee update form.</td><td><code>ticket</code>, <code>form</code>.</td></tr>
+      <tr><td><code>templates/tickets/cbs_access_request.html</code></td><td>Head Office and Branch CBS access request forms.</td><td><code>form</code>, office type flags, signoff fields.</td></tr>
+      <tr><td><code>templates/tickets/incident_report.html</code></td><td>Incident report form, evidence list, signoff controls, submit/download actions.</td><td><code>form</code>, <code>incident_report</code>, <code>incident_attachments</code>, signoff flags, lock flags.</td></tr>
+      <tr><td><code>templates/tickets/support_queue.html</code></td><td>Main support ticket queue.</td><td>Filtered tickets and selected filter values.</td></tr>
+      <tr><td><code>templates/docs/tech_docs.html</code></td><td>Technical document listing.</td><td><code>documents</code>, visibility and action flags.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>26. Testing Guidance for New Developers</h2>
+  <p>
+    The most important tests live in <code>tickets/tests.py</code> and <code>accounts/tests.py</code>.
+    When changing workflow behavior, add focused tests near the related test class.
+  </p>
+  <table>
+    <thead>
+      <tr><th>Change Type</th><th>Test What</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Permission change</td><td>Allowed user succeeds, blocked user fails, direct URL/POST path enforces the rule, and template does not show forbidden action.</td></tr>
+      <tr><td>Status transition change</td><td>Valid transition succeeds, invalid transition is blocked, saved fields are correct, and user-facing message is shown.</td></tr>
+      <tr><td>CBS approval change</td><td>Each approval stage, final approval/rejection, signoff-chain changes, requester correction, and resolved-lock behavior.</td></tr>
+      <tr><td>Incident report change</td><td>Draft save, submit, signatures, signoff order, evidence access, resolution blockers, and finalized lock behavior.</td></tr>
+      <tr><td>Chat change</td><td>HTTP detail visibility, WebSocket access helper impact, attachment upload, delete, read-state, notification targets, and closed/read-only behavior.</td></tr>
+      <tr><td>Template action change</td><td>Button/link appears for allowed user and is absent for disallowed user; direct backend route must also be tested.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>27. Safe Development Checklist</h2>
+  <ol>
+    <li>Identify the URL and view first.</li>
+    <li>Find the form and model involved.</li>
+    <li>Find existing permission helpers before adding new checks.</li>
+    <li>Update both UI visibility and server-side enforcement.</li>
+    <li>For chat/call changes, confirm WebSocket consumer permissions still match HTTP permissions.</li>
+    <li>For attachments/documents, confirm view and download URLs use the same intended access rule.</li>
+    <li>For approval or incident changes, test both the current actor and a user who should not be allowed.</li>
+    <li>Keep status-locking rules explicit; avoid changing resolved/closed behavior accidentally.</li>
+    <li>Add or update focused tests before broader refactors.</li>
+    <li>Do not mix unrelated UI, workflow, and data-model changes in one patch unless the feature truly needs all three.</li>
+  </ol>
+
+  <h2>28. How to Understand or Extend a Feature</h2>
+  <ol>
+    <li>Start with <code>helpdesk/helpdesk/urls.py</code> to find the application route.</li>
+    <li>Open the matching app <code>urls.py</code> to identify the view function.</li>
+    <li>Read the view in <code>views.py</code> for permission checks, model queries, form validation, state changes, notifications, email, and template context.</li>
+    <li>Read the form in <code>forms.py</code> for user-facing fields and validation rules.</li>
+    <li>Read the model in <code>models.py</code> for stored fields, helper properties, status choices, and relationships.</li>
+    <li>Open the rendered template to understand which actions are visible to each user.</li>
+    <li>For real-time behavior, read <code>asgi.py</code>, <code>tickets/routing.py</code>, and <code>tickets/consumers.py</code>.</li>
+    <li>For permission-sensitive changes, add tests around both the UI visibility and the direct URL/POST path.</li>
+  </ol>
+
+  <div class="note">
+    This document describes only application-level workflow and business logic. 
+
+  </div>
+</body>
+</html>

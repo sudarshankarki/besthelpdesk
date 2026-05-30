@@ -543,6 +543,10 @@ class CustomUserAdminDepartmentTests(TestCase):
         self.assertIn("Kathmandu", choices)
         self.assertIn("Pokhara", choices)
 
+    def test_user_profile_branch_display_uses_branch_id(self):
+        self.assertEqual(self.target_user.branch_id_display, "KTM")
+        self.assertEqual(self.target_user.branch_profile_display, "KTM - Kathmandu")
+
     def test_admin_form_can_switch_user_department(self):
         form = CustomUserAdminForm(
             instance=self.target_user,

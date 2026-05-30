@@ -7,7 +7,7 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 
 from .chat_rules import is_ticket_chat_locked, ticket_chat_locked_message
-from .models import Ticket, TicketMessage, can_access_ticket_chat
+from .models import Ticket, TicketMessage, can_access_ticket_chat, get_ticket_chat_access_user_ids
 from .notifications import (
     build_call_notification_payload,
     build_chat_notification_payload,
@@ -152,6 +152,7 @@ class TicketCallConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         self.ticket_id = self.scope["url_route"]["kwargs"]["ticket_id"]
         self.group_name = f"ticket_call_{self.ticket_id}"
+        self.active_peer_user_id = None
         user = self.scope["user"]
 
         if not user.is_authenticated:
@@ -192,14 +193,18 @@ class TicketCallConsumer(AsyncWebsocketConsumer):
 
     async def disconnect(self, close_code):
         await self.channel_layer.group_discard(self.group_name, self.channel_name)
-        await self.channel_layer.group_send(
-            self.group_name,
-            {
-                "type": "call_event",
-                "event": "left",
-                "sender": self.channel_name,
-            },
-        )
+        active_peer_user_id = getattr(self, "active_peer_user_id", None)
+        if active_peer_user_id:
+            await self.channel_layer.group_send(
+                self.group_name,
+                {
+                    "type": "call_event",
+                    "event": "left",
+                    "sender": self.channel_name,
+                    "user_id": getattr(self.scope["user"], "id", None),
+                    "target_user_id": active_peer_user_id,
+                },
+            )
         logger.info("Call WS disconnected ticket %s code=%s", self.ticket_id, close_code)
 
     async def receive(self, text_data):
@@ -223,8 +228,16 @@ class TicketCallConsumer(AsyncWebsocketConsumer):
         if msg_type not in {"ring", "ready", "offer", "answer", "ice", "hangup"}:
             return
 
+        target_user_id = self._clean_user_id(payload.get("target_user_id"))
         if msg_type == "ring":
-            target_ids, notify_payload = await self._get_call_notification_data(user.id)
+            if target_user_id is None:
+                await self.send(text_data=json.dumps({"type": "error", "error": "Select one eligible call recipient."}))
+                return
+            target_ids, notify_payload = await self._get_call_notification_data(user.id, target_user_id)
+            if not target_ids:
+                await self.send(text_data=json.dumps({"type": "error", "error": "Select one eligible call recipient."}))
+                return
+            self.active_peer_user_id = target_ids[0]
             for target_id in target_ids:
                 await self.channel_layer.group_send(
                     f"user_notify_{target_id}",
@@ -237,11 +250,27 @@ class TicketCallConsumer(AsyncWebsocketConsumer):
                     "event": "ring",
                     "sender": self.channel_name,
                     "user": user.username,
+                    "user_id": user.id,
+                    "target_user_id": self.active_peer_user_id,
                 },
             )
             return
 
-        event = {"type": "call_event", "event": msg_type, "sender": self.channel_name, "user": user.username}
+        if target_user_id is None:
+            target_user_id = self.active_peer_user_id
+        if not await self._is_valid_call_peer(user.id, target_user_id):
+            await self.send(text_data=json.dumps({"type": "error", "error": "Select one eligible call recipient."}))
+            return
+        self.active_peer_user_id = target_user_id
+
+        event = {
+            "type": "call_event",
+            "event": msg_type,
+            "sender": self.channel_name,
+            "user": user.username,
+            "user_id": user.id,
+            "target_user_id": target_user_id,
+        }
         if msg_type in {"offer", "answer"}:
             sdp = payload.get("sdp")
             if not isinstance(sdp, dict):
@@ -261,6 +290,17 @@ class TicketCallConsumer(AsyncWebsocketConsumer):
             await self.close(code=4003)
             return
 
+        current_user_id = getattr(self.scope["user"], "id", None)
+        event_user_id = event.get("user_id")
+        target_user_id = event.get("target_user_id")
+        if target_user_id and event_user_id:
+            if current_user_id not in {event_user_id, target_user_id}:
+                return
+            if current_user_id == target_user_id:
+                self.active_peer_user_id = event_user_id
+            elif current_user_id == event_user_id:
+                self.active_peer_user_id = target_user_id
+
         await self.send(
             text_data=json.dumps(
                 {
@@ -268,11 +308,20 @@ class TicketCallConsumer(AsyncWebsocketConsumer):
                     "event": event.get("event"),
                     "sender": event.get("sender"),
                     "user": event.get("user"),
+                    "user_id": event.get("user_id"),
+                    "target_user_id": event.get("target_user_id"),
                     "sdp": event.get("sdp"),
                     "candidate": event.get("candidate"),
                 }
             )
         )
+
+    def _clean_user_id(self, value):
+        try:
+            user_id = int(value)
+        except (TypeError, ValueError):
+            return None
+        return user_id if user_id > 0 else None
 
     @sync_to_async
     def _can_access_ticket(self, user, ticket_id):
@@ -283,13 +332,23 @@ class TicketCallConsumer(AsyncWebsocketConsumer):
         return can_access_ticket_chat(user, ticket)
 
     @sync_to_async
-    def _get_call_notification_data(self, caller_user_id):
+    def _get_call_notification_data(self, caller_user_id, target_user_id=None):
         ticket = Ticket.objects.select_related("created_by", "assigned_to").get(id=self.ticket_id)
         caller = get_user_model().objects.filter(id=caller_user_id).first() or ticket.created_by
+        allowed_target_ids = get_call_notification_target_ids(ticket, caller_user_id)
+        target_ids = [target_user_id] if target_user_id in allowed_target_ids else []
         return (
-            get_call_notification_target_ids(ticket, caller_user_id),
-            build_call_notification_payload(ticket, caller),
+            target_ids,
+            build_call_notification_payload(ticket, caller, target_ids[0] if len(target_ids) == 1 else None),
         )
+
+    @sync_to_async
+    def _is_valid_call_peer(self, caller_user_id, target_user_id):
+        if not target_user_id or target_user_id == caller_user_id:
+            return False
+        ticket = Ticket.objects.get(id=self.ticket_id)
+        target_user = get_user_model().objects.filter(id=target_user_id).first()
+        return bool(target_user and can_access_ticket_chat(target_user, ticket))
 
     @sync_to_async
     def _get_chat_locked_error(self, ticket_id):

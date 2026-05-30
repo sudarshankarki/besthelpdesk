@@ -6,7 +6,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from tickets.models import Ticket
-from tickets.purge import purge_ticket_conversation
+from tickets.purge import NEVER_PURGE_REQUEST_TYPES, purge_ticket_conversation
 
 
 class Command(BaseCommand):
@@ -36,6 +36,7 @@ class Command(BaseCommand):
         cutoff = timezone.now() - timedelta(days=days)
         tickets = (
             Ticket.objects.filter(status="closed", closed_at__isnull=False, closed_at__lt=cutoff)
+            .exclude(request_type__in=NEVER_PURGE_REQUEST_TYPES)
             .filter(Q(messages__isnull=False) | Q(image__isnull=False))
             .only("id")
             .distinct()

@@ -80,6 +80,8 @@
                                 <span class="badge-soft chip-danger">Admin</span>
                             {% elif row.user.is_itsupport %}
                                 <span class="badge-soft chip-primary">IT Support</span>
+                            {% elif row.user.is_central_operation %}
+                                <span class="badge-soft chip-warning">Central Operation</span>
                             {% else %}
                                 <span class="badge-soft chip-muted">User</span>
                             {% endif %}

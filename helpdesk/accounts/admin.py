@@ -33,14 +33,14 @@ class CustomUserAdminForm(UserChangeForm):
 @admin.register(CustomUser)
 class CustomUserAdmin(UserAdmin):
     form = CustomUserAdminForm
-    list_display = ("username", "email", "department", "branch", "has_signature_image", "is_staff", "is_itsupport", "is_active")
-    list_filter = ("department", "branch", "is_staff", "is_itsupport", "is_active")
+    list_display = ("username", "email", "department", "branch", "has_signature_image", "is_staff", "is_itsupport", "is_central_operation", "is_active")
+    list_filter = ("department", "branch", "is_staff", "is_itsupport", "is_central_operation", "is_active")
     search_fields = ("username", "email", "first_name", "last_name", "department", "branch")
     fieldsets = UserAdmin.fieldsets + (
         ("Profile", {"fields": ("phone_number", "department", "branch", "position", "signature_image")}),
-        ("IT Support", {"fields": ("is_itsupport",)}),
+        ("Roles", {"fields": ("is_itsupport", "is_central_operation")}),
     )
-    add_fieldsets = UserAdmin.add_fieldsets + (("IT Support", {"fields": ("is_itsupport",)}),)
+    add_fieldsets = UserAdmin.add_fieldsets + (("Roles", {"fields": ("is_itsupport", "is_central_operation")}),)
 
     @admin.display(boolean=True, description="Signature")
     def has_signature_image(self, obj):

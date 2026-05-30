@@ -1,6 +1,7 @@
 {% extends 'base.html' %}
+{% load static %}
 
-{% block title %}Create Ticket{% endblock %}
+{% block title %}New Request{% endblock %}
 
 {% block content %}
 <style>
@@ -24,21 +25,209 @@
     .incident-checkbox-list input {
         margin: 0;
     }
+
+    .ticket-type-picker {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 0.65rem;
+    }
+
+    .request-type-panel {
+        border-color: #b9d7c9 !important;
+        background:
+            linear-gradient(135deg, rgba(237, 248, 241, 0.88), rgba(237, 246, 255, 0.78)) !important;
+    }
+
+    .ticket-type-option {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+        min-height: 76px;
+        padding: 0.75rem 0.85rem;
+        border: 1px solid #cfe0d7;
+        border-radius: 0.75rem;
+        background: #ffffff;
+        color: var(--ink);
+        text-decoration: none;
+        transition: border-color 0.12s ease, background 0.12s ease, box-shadow 0.12s ease, transform 0.12s ease;
+    }
+
+    .ticket-type-option-header {
+        display: flex;
+        align-items: center;
+        gap: 0.55rem;
+    }
+
+    .ticket-type-icon {
+        width: 30px;
+        height: 30px;
+        flex: 0 0 30px;
+        object-fit: contain;
+    }
+
+    .ticket-type-option-general {
+        border-color: #a9d5bf;
+        background: #edf8f1;
+    }
+
+    .ticket-type-option-cbs {
+        border-color: #a8caee;
+        background: #edf6ff;
+    }
+
+    .ticket-type-option-remote {
+        border-color: #d6bff2;
+        background: #f7f0ff;
+    }
+
+    .ticket-type-option-incident {
+        border-color: #f0bdae;
+        background: #fff2ee;
+    }
+
+    .ticket-type-option:hover {
+        color: var(--ink);
+        text-decoration: none;
+        transform: translateY(-1px);
+        box-shadow: 0 10px 24px rgba(18, 40, 28, 0.08);
+    }
+
+    .ticket-type-option-general:hover {
+        border-color: #73b891;
+        background: #e3f4e9;
+    }
+
+    .ticket-type-option-cbs:hover {
+        border-color: #73aadf;
+        background: #e4f1ff;
+    }
+
+    .ticket-type-option-remote:hover {
+        border-color: #b999e6;
+        background: #f0e6ff;
+    }
+
+    .ticket-type-option-incident:hover {
+        border-color: #e08f78;
+        background: #ffe8e1;
+    }
+
+    .ticket-type-option-title {
+        font-weight: 800;
+    }
+
+    .ticket-type-option-general .ticket-type-option-title {
+        color: #075f43;
+    }
+
+    .ticket-type-option-cbs .ticket-type-option-title {
+        color: #164f87;
+    }
+
+    .ticket-type-option-remote .ticket-type-option-title {
+        color: #67449e;
+    }
+
+    .ticket-type-option-incident .ticket-type-option-title {
+        color: #9b3b24;
+    }
+
+    .ticket-type-option-meta {
+        color: var(--muted);
+        font-size: 0.88rem;
+        line-height: 1.35;
+    }
+
+    .ticket-type-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        margin-top: 0.35rem;
+    }
+
+    .ticket-type-action {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 30px;
+        padding: 0.3rem 0.55rem;
+        border: 1px solid #adc8bc;
+        border-radius: 0.65rem;
+        background: #ffffff;
+        color: #375247;
+        font-size: 0.88rem;
+        font-weight: 800;
+        text-decoration: none;
+        cursor: pointer;
+    }
+
+    .ticket-type-action:hover {
+        background: #e7f4ee;
+        color: var(--ink);
+        text-decoration: none;
+    }
+
+    .ticket-type-option-cbs .ticket-type-action {
+        border-color: #9fbfe2;
+        color: #164f87;
+    }
+
+    .ticket-type-option-cbs .ticket-type-action:hover {
+        background: #e4f0ff;
+        color: #0e3a65;
+    }
+
+    .cc-recipient-select {
+        min-height: 112px;
+    }
 </style>
 <div class="row justify-content-center">
     <div class="col-lg-8">
         <div class="card surface border-0">
             <div class="card-header bg-white border-0 pt-4 px-4">
-                <h4 class="mb-1 fw-bold">Create Support Ticket</h4>
-                <p class="text-muted mb-0">Describe your issue clearly so support can resolve it faster.</p>
+                <h4 class="mb-1 fw-bold">New Request</h4>
+                <p class="text-muted mb-0">Choose the request type first, then fill only the form you need.</p>
             </div>
             <div class="card-body px-4 pb-4">
                 <form method="post" enctype="multipart/form-data" data-prevent-double-submit>
                     {% csrf_token %}
                     <input type="hidden" name="submission_token" value="{{ submission_token }}">
+                    <input type="hidden" name="ticket_scope" value="{{ ticket_scope|default:'' }}">
                     {% for hidden in form.hidden_fields %}
                         {{ hidden }}
                     {% endfor %}
+
+                    <div class="border rounded-3 p-3 mb-3 request-type-panel">
+                        <div class="small text-uppercase text-muted fw-semibold mb-2">What do you need?</div>
+                        <div class="ticket-type-picker">
+                            <a class="ticket-type-option ticket-type-option-general" href="#standard-ticket-fields" id="select-general-request">
+                                <span class="ticket-type-option-title">General Support</span>
+                                <span class="ticket-type-option-meta">For day-to-day IT issues and service requests.</span>
+                            </a>
+                            <div class="ticket-type-option ticket-type-option-cbs">
+                                <span class="ticket-type-option-header">
+                                    <img class="ticket-type-icon" src="{% static 'images/cbs-access.png' %}" alt="">
+                                    <span class="ticket-type-option-title">CBS Access</span>
+                                </span>
+                                <span class="ticket-type-option-meta">Request a CBS user ID for Head Office or branch users.</span>
+                                <span class="ticket-type-actions">
+                                    <a class="ticket-type-action" href="{% url 'cbs_access_request' %}">Head Office</a>
+                                    <a class="ticket-type-action" href="{% url 'cbs_access_branch_request' %}">Branch</a>
+                                </span>
+                            </div>
+                            <a class="ticket-type-option ticket-type-option-remote" href="{% url 'remote_access_request' %}">
+                                <span class="ticket-type-option-header">
+                                    <img class="ticket-type-icon" src="{% static 'images/anydesk.png' %}" alt="">
+                                    <span class="ticket-type-option-title">Remote Access</span>
+                                </span>
+                                <span class="ticket-type-option-meta">Submit a remote access approval request.</span>
+                            </a>
+                            <button class="ticket-type-option ticket-type-option-incident text-start" type="button" id="select-incident-request">
+                                <span class="ticket-type-option-title">Incident Report</span>
+                                <span class="ticket-type-option-meta">Report a security, system, or service-impacting incident.</span>
+                            </button>
+                        </div>
+                    </div>
 
                     {% if form.non_field_errors %}
                         <div class="alert alert-danger py-2">
@@ -48,7 +237,7 @@
                         </div>
                     {% endif %}
 
-                    <div class="mb-3">
+                    <div class="mb-3" id="standard-ticket-fields">
                         <label class="form-label fw-bold" for="{{ form.subject.id_for_label }}">{{ form.subject.label }}</label>
                         {{ form.subject }}
                         {% for error in form.subject.errors %}
@@ -113,6 +302,9 @@
                                 {% for error in form.notify_email.errors %}
                                     <div class="text-danger small">{{ error }}</div>
                                 {% endfor %}
+                                <label class="form-label fw-bold mt-3" for="cc-email-options">Suggested CC Recipients</label>
+                                <select class="form-select cc-recipient-select" id="cc-email-options" multiple size="4"></select>
+                                <div id="cc-email-suggestion-help" class="form-text">Select a department and branch to see CC suggestions. Hold Ctrl to choose multiple.</div>
                                 <label class="form-label fw-bold mt-3" for="{{ form.cc_emails.id_for_label }}">{{ form.cc_emails.label }}</label>
                                 {{ form.cc_emails }}
                                 {% if form.cc_emails.help_text %}
@@ -152,87 +344,6 @@
                         </div>
                     </div>
 
-                    <div class="border rounded-3 p-3 mb-3 bg-light" id="incident-fields-section">
-                        <div class="small text-uppercase text-muted fw-semibold mb-3">Incident Details</div>
-                        <div class="row g-3">
-                            <div class="col-md-6">
-                                <label class="form-label fw-bold" for="{{ form.incident_detected_at.id_for_label }}">{{ form.incident_detected_at.label }}</label>
-                                {{ form.incident_detected_at }}
-                                {% for error in form.incident_detected_at.errors %}
-                                    <div class="text-danger small">{{ error }}</div>
-                                {% endfor %}
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label fw-bold" for="{{ form.incident_current_status.id_for_label }}">{{ form.incident_current_status.label }}</label>
-                                {{ form.incident_current_status }}
-                                {% for error in form.incident_current_status.errors %}
-                                    <div class="text-danger small">{{ error }}</div>
-                                {% endfor %}
-                            </div>
-                            <div class="col-12">
-                                <label class="form-label fw-bold" for="{{ form.incident_additional_departments.id_for_label }}">{{ form.incident_additional_departments.label }}</label>
-                                <div class="incident-checkbox-list">
-                                    {{ form.incident_additional_departments }}
-                                </div>
-                                {% if form.incident_additional_departments.help_text %}
-                                    <div class="form-text">{{ form.incident_additional_departments.help_text }}</div>
-                                {% endif %}
-                                {% for error in form.incident_additional_departments.errors %}
-                                    <div class="text-danger small">{{ error }}</div>
-                                {% endfor %}
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label fw-bold" for="{{ form.incident_service_affected.id_for_label }}">{{ form.incident_service_affected.label }}</label>
-                                {{ form.incident_service_affected }}
-                                {% for error in form.incident_service_affected.errors %}
-                                    <div class="text-danger small">{{ error }}</div>
-                                {% endfor %}
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label fw-bold" for="{{ form.incident_service_affected_other.id_for_label }}">{{ form.incident_service_affected_other.label }}</label>
-                                {{ form.incident_service_affected_other }}
-                                {% for error in form.incident_service_affected_other.errors %}
-                                    <div class="text-danger small">{{ error }}</div>
-                                {% endfor %}
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label fw-bold" for="{{ form.incident_detected_how.id_for_label }}">{{ form.incident_detected_how.label }}</label>
-                                {{ form.incident_detected_how }}
-                                {% for error in form.incident_detected_how.errors %}
-                                    <div class="text-danger small">{{ error }}</div>
-                                {% endfor %}
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label fw-bold" for="{{ form.incident_affected.id_for_label }}">{{ form.incident_affected.label }}</label>
-                                {{ form.incident_affected }}
-                                {% for error in form.incident_affected.errors %}
-                                    <div class="text-danger small">{{ error }}</div>
-                                {% endfor %}
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label fw-bold" for="{{ form.incident_business_impact.id_for_label }}">{{ form.incident_business_impact.label }}</label>
-                                {{ form.incident_business_impact }}
-                                {% for error in form.incident_business_impact.errors %}
-                                    <div class="text-danger small">{{ error }}</div>
-                                {% endfor %}
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label fw-bold" for="{{ form.incident_initial_action.id_for_label }}">{{ form.incident_initial_action.label }}</label>
-                                {{ form.incident_initial_action }}
-                                {% for error in form.incident_initial_action.errors %}
-                                    <div class="text-danger small">{{ error }}</div>
-                                {% endfor %}
-                            </div>
-                            <div class="col-12">
-                                <label class="form-label fw-bold" for="{{ form.incident_evidence.id_for_label }}">{{ form.incident_evidence.label }}</label>
-                                {{ form.incident_evidence }}
-                                {% for error in form.incident_evidence.errors %}
-                                    <div class="text-danger small">{{ error }}</div>
-                                {% endfor %}
-                            </div>
-                        </div>
-                    </div>
-
                     <div class="mb-3">
                         <label class="form-label fw-bold" for="{{ form.attachments.id_for_label }}">{{ form.attachments.label }}</label>
                         {{ form.attachments }}
@@ -260,48 +371,58 @@
     {{ form.all_branch_options|json_script:"all-branch-options" }}
     {{ form.restricted_branch_by_department|json_script:"restricted-branch-options" }}
     {{ form.default_notify_email_by_department|json_script:"default-notify-email-options" }}
+    {{ form.all_cc_email_options|json_script:"all-cc-email-options" }}
     <script>
         (function () {
             const departmentSelect = document.getElementById("{{ form.department.id_for_label }}");
             const requestTypeSelect = document.getElementById("{{ form.request_type.id_for_label }}");
             const branchSelect = document.getElementById("{{ form.branch.id_for_label }}");
-            const incidentFieldsSection = document.getElementById("incident-fields-section");
             const assignEmailInput = document.getElementById("{{ form.assign_email.id_for_label }}");
             const assignmentCardTitle = document.getElementById("assignment-card-title");
             const assignEmailLabel = document.getElementById("assign-email-label");
             const assignEmailHelp = document.getElementById("assign-email-help");
             const notifyEmailInput = document.getElementById("{{ form.notify_email.id_for_label }}");
+            const ccEmailsInput = document.getElementById("{{ form.cc_emails.id_for_label }}");
             const datalist = document.getElementById("assign-email-suggestions");
             const helpText = document.getElementById("assign-email-suggestion-help");
             const notifyDatalist = document.getElementById("notify-email-suggestions");
             const notifyHelpText = document.getElementById("notify-email-suggestion-help");
+            const ccEmailSelect = document.getElementById("cc-email-options");
+            const ccHelpText = document.getElementById("cc-email-suggestion-help");
             const assignOptionsEl = document.getElementById("assign-email-options");
             const notifyOptionsEl = document.getElementById("notify-email-options");
             const allBranchOptionsEl = document.getElementById("all-branch-options");
             const restrictedBranchOptionsEl = document.getElementById("restricted-branch-options");
             const defaultNotifyEmailOptionsEl = document.getElementById("default-notify-email-options");
+            const allCcEmailOptionsEl = document.getElementById("all-cc-email-options");
+            const generalRequestButton = document.getElementById("select-general-request");
+            const incidentRequestButton = document.getElementById("select-incident-request");
             const cbsHeadOfficeUrl = "{% url 'cbs_access_request' %}";
             const cbsBranchOfficeUrl = "{% url 'cbs_access_branch_request' %}";
+            let requestTypeInitialized = false;
 
             if (
                 !departmentSelect
                 || !requestTypeSelect
                 || !branchSelect
-                || !incidentFieldsSection
                 || !assignEmailInput
                 || !assignmentCardTitle
                 || !assignEmailLabel
                 || !assignEmailHelp
                 || !notifyEmailInput
+                || !ccEmailsInput
                 || !datalist
                 || !helpText
                 || !notifyDatalist
                 || !notifyHelpText
+                || !ccEmailSelect
+                || !ccHelpText
                 || !assignOptionsEl
                 || !notifyOptionsEl
                 || !allBranchOptionsEl
                 || !restrictedBranchOptionsEl
                 || !defaultNotifyEmailOptionsEl
+                || !allCcEmailOptionsEl
             ) {
                 return;
             }
@@ -311,6 +432,7 @@
             let allBranchOptions = [];
             let restrictedBranchByDepartment = {};
             let defaultNotifyEmailByDepartment = {};
+            let allCcEmailOptions = [];
             try {
                 assignOptionsByDepartment = JSON.parse(assignOptionsEl.textContent || "{}");
             } catch (error) {
@@ -335,6 +457,11 @@
                 defaultNotifyEmailByDepartment = JSON.parse(defaultNotifyEmailOptionsEl.textContent || "{}");
             } catch (error) {
                 defaultNotifyEmailByDepartment = {};
+            }
+            try {
+                allCcEmailOptions = JSON.parse(allCcEmailOptionsEl.textContent || "[]");
+            } catch (error) {
+                allCcEmailOptions = [];
             }
 
             function replaceBranchOptions(options, selectedValue) {
@@ -463,12 +590,82 @@
                     : `${branchEmails.length} notify emails are available for the selected department and branch.`;
             }
 
+            function parseCcEmails(value) {
+                return (value || "")
+                    .split(/[;,\n]+/)
+                    .map(function (email) {
+                        return email.trim().toLowerCase();
+                    })
+                    .filter(Boolean);
+            }
+
+            function selectedCcEmails() {
+                return Array.from(ccEmailSelect.selectedOptions || []).map(function (option) {
+                    return (option.value || "").trim().toLowerCase();
+                }).filter(Boolean);
+            }
+
+            function syncCcEmailsFromSelect() {
+                const previousSelected = parseCcEmails(ccEmailSelect.dataset.selectedCcEmails || "");
+                const nextSelected = selectedCcEmails();
+                const previousSelectedSet = new Set(previousSelected);
+                const selectedSet = new Set(nextSelected);
+                const manualEmails = parseCcEmails(ccEmailsInput.value).filter(function (email) {
+                    return !previousSelectedSet.has(email);
+                });
+                const merged = [];
+
+                manualEmails.concat(nextSelected).forEach(function (email) {
+                    if (email && !merged.includes(email)) {
+                        merged.push(email);
+                    }
+                });
+
+                ccEmailsInput.value = merged.join(", ");
+                ccEmailSelect.dataset.selectedCcEmails = nextSelected.join(",");
+            }
+
+            function renderCcEmailSuggestions() {
+                const emails = Array.from(new Set(allCcEmailOptions)).sort();
+                const currentCcEmails = new Set(parseCcEmails(ccEmailsInput.value));
+
+                ccEmailSelect.innerHTML = "";
+                emails.forEach(function (email) {
+                    const option = document.createElement("option");
+                    option.value = email;
+                    option.textContent = email;
+                    option.selected = currentCcEmails.has(email);
+                    ccEmailSelect.appendChild(option);
+                });
+                ccEmailSelect.dataset.selectedCcEmails = selectedCcEmails().join(",");
+
+                if (!emails.length) {
+                    ccHelpText.textContent = "No helpdesk user emails are available for CC suggestions.";
+                    return;
+                }
+
+                ccHelpText.textContent = emails.length === 1
+                    ? "1 helpdesk user email is available. Hold Ctrl to choose multiple."
+                    : `${emails.length} helpdesk user emails are available. Hold Ctrl to choose multiple.`;
+            }
+
             function renderAllSuggestions() {
                 renderAssignEmailSuggestions();
                 renderNotifyEmailSuggestions();
+                renderCcEmailSuggestions();
             }
 
             function syncIncidentFields() {
+                if (!requestTypeInitialized) {
+                    requestTypeInitialized = true;
+                    const isInitialIncident = (requestTypeSelect.value || "") === "incident";
+                    assignmentCardTitle.textContent = isInitialIncident ? "Incident Ownership" : "Assignment";
+                    assignEmailLabel.textContent = isInitialIncident ? "Incident Commander / Ticket Owner Email" : "{{ form.assign_email.label|escapejs }}";
+                    assignEmailHelp.textContent = isInitialIncident
+                        ? "Select the user who owns this incident ticket and can edit the draft Incident Response Report. This is separate from Incident Notified User and Sign Level approvals."
+                        : "{{ form.assign_email.help_text|escapejs }}";
+                    return;
+                }
                 if ((requestTypeSelect.value || "") === "cbs_access_ho") {
                     window.location.href = cbsHeadOfficeUrl;
                     return;
@@ -478,7 +675,6 @@
                     return;
                 }
                 const isIncident = (requestTypeSelect.value || "") === "incident";
-                incidentFieldsSection.hidden = !isIncident;
                 assignmentCardTitle.textContent = isIncident ? "Incident Ownership" : "Assignment";
                 assignEmailLabel.textContent = isIncident ? "Incident Commander / Ticket Owner Email" : "{{ form.assign_email.label|escapejs }}";
                 assignEmailHelp.textContent = isIncident
@@ -492,6 +688,21 @@
                 renderAllSuggestions();
             });
             requestTypeSelect.addEventListener("change", syncIncidentFields);
+            ccEmailSelect.addEventListener("change", syncCcEmailsFromSelect);
+            if (generalRequestButton) {
+                generalRequestButton.addEventListener("click", function () {
+                    requestTypeSelect.value = "service";
+                    syncIncidentFields();
+                });
+            }
+            if (incidentRequestButton) {
+                incidentRequestButton.addEventListener("click", function () {
+                    requestTypeSelect.value = "incident";
+                    syncIncidentFields();
+                    requestTypeSelect.scrollIntoView({ behavior: "smooth", block: "center" });
+                    requestTypeSelect.focus();
+                });
+            }
             branchSelect.addEventListener("change", renderAllSuggestions);
             syncIncidentFields();
             syncNotifyEmailDefault(false);

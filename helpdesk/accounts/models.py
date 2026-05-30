@@ -62,6 +62,7 @@ class Department(models.Model):
 
 class CustomUser(AbstractUser):
     is_itsupport = models.BooleanField(default=False)
+    is_central_operation = models.BooleanField(default=False)
     email_verified = models.BooleanField(default=False)
     id = models.BigAutoField(primary_key=True)
     # Add your extra fields here
@@ -73,6 +74,7 @@ class CustomUser(AbstractUser):
     signature_image = models.ImageField(
         upload_to=user_signature_upload_to,
         storage=TicketImageStorage(),
+        max_length=255,
         blank=True,
         null=True,
     )
@@ -87,6 +89,28 @@ class CustomUser(AbstractUser):
 
     def __str__(self):
         return self.username
+
+    @property
+    def branch_id_display(self):
+        branch_name = (self.branch or "").strip()
+        if not branch_name:
+            return ""
+        branch_id = (
+            Branch.objects.filter(name__iexact=branch_name)
+            .values_list("branch_id", flat=True)
+            .first()
+        )
+        return branch_id or branch_name
+
+    @property
+    def branch_profile_display(self):
+        branch_name = (self.branch or "").strip()
+        if not branch_name:
+            return ""
+        branch_id = self.branch_id_display
+        if branch_id and branch_id.casefold() != branch_name.casefold():
+            return f"{branch_id} - {branch_name}"
+        return branch_name
 
 
 class EmailSettings(models.Model):

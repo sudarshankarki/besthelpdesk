@@ -64,6 +64,53 @@ class UserDisplayChoiceField(forms.ModelChoiceField):
         return f"{label} ({details})" if details else label
 
 
+class UserDisplayMultipleChoiceField(forms.ModelMultipleChoiceField):
+    def label_from_instance(self, obj):
+        full_name = (obj.get_full_name() or "").strip()
+        label = full_name or obj.username
+        email = (getattr(obj, "email", "") or "").strip()
+        return f"{label} - {email}" if email else label
+
+
+def _normalize_person_name(value):
+    return " ".join((value or "").split()).casefold()
+
+
+def _user_name_candidates(user):
+    if not user:
+        return set()
+    return {
+        value
+        for value in [
+            _normalize_person_name(user.get_full_name() or ""),
+            _normalize_person_name(getattr(user, "username", "") or ""),
+        ]
+        if value
+    }
+
+
+def _branch_id_for_name(branch_name):
+    branch_name = (branch_name or "").strip()
+    if not branch_name:
+        return ""
+    return (
+        Branch.objects.filter(name__iexact=branch_name)
+        .values_list("branch_id", flat=True)
+        .first()
+        or branch_name
+    )
+
+
+def _branch_profile_label_for_name(branch_name):
+    branch_name = (branch_name or "").strip()
+    if not branch_name:
+        return ""
+    branch_id = _branch_id_for_name(branch_name)
+    if branch_id and branch_id.casefold() != branch_name.casefold():
+        return f"{branch_id} - {branch_name}"
+    return branch_name
+
+
 def _clean_uploaded_files(uploads):
     uploads = uploads or []
     max_bytes = int(getattr(settings, "TICKET_ATTACHMENT_MAX_BYTES", 20 * 1024 * 1024))
@@ -278,6 +325,16 @@ def _build_assignable_emails_by_department_and_branch():
     }
 
 
+def _build_all_cc_email_options():
+    return sorted(
+        {
+            (email or "").strip().lower()
+            for email in CustomUser.objects.filter(is_active=True).exclude(email="").exclude(email__isnull=True).values_list("email", flat=True)
+            if (email or "").strip()
+        }
+    )
+
+
 def _all_branch_names():
     branch_names = []
     seen = set()
@@ -477,15 +534,26 @@ class TicketForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         self._request_user = kwargs.pop("user", None)
+        self.request_type_scope = (kwargs.pop("request_type_scope", "") or "").strip()
         self._assign_user_id = None
         self._assign_user_department = ""
         self._assign_user_branch = ""
         self._notify_department = ""
         provided_initial = kwargs.get("initial") or {}
         super().__init__(*args, **kwargs)
-        if not self.is_bound and "request_type" not in provided_initial:
-            self.initial["request_type"] = "service"
-        self.fields["request_type"].initial = "service"
+        if self.request_type_scope == "cbs_access":
+            self.fields["request_type"].choices = [
+                ("", "Select CBS access request type"),
+                ("cbs_access_ho", "CBS Access Request (Head Office)"),
+                ("cbs_access_branch", "CBS Access Request (Branch)"),
+            ]
+            if not self.is_bound and "request_type" not in provided_initial:
+                self.initial["request_type"] = ""
+            self.fields["request_type"].initial = self.initial.get("request_type", "")
+        else:
+            if not self.is_bound and "request_type" not in provided_initial:
+                self.initial["request_type"] = "service"
+            self.fields["request_type"].initial = "service"
 
         department_names = Department.objects.order_by("name").values_list("name", flat=True)
         self.fields["department"].choices = [("", "Select department")] + [
@@ -518,6 +586,7 @@ class TicketForm(forms.ModelForm):
             self.fields["notify_email"].initial = default_notify_email
         self.assignable_emails_by_department_and_branch = _build_assignable_emails_by_department_and_branch()
         self.notify_emails_by_department_and_branch = _build_notify_emails_by_department_and_branch()
+        self.all_cc_email_options = _build_all_cc_email_options()
         self.fields["assign_email"].help_text = (
             "Use a single user email here. Suggestions follow the selected department and branch."
         )
@@ -916,6 +985,20 @@ class CBSAccessRequestForm(forms.Form):
         help_text="The selected user gives the final digital approval.",
         empty_label="Select final approver",
     )
+    post_approval_assigned_to = UserDisplayChoiceField(
+        queryset=CustomUser.objects.none(),
+        widget=forms.Select(attrs={"class": "form-select"}),
+        label="Assign To After Approval (CBS ACCESS PROVIDER)",
+        help_text="Choose the CBS access provider who should receive this ticket automatically after final CBS approval.",
+        empty_label="Select concerned user (CBS access provider)",
+    )
+    post_approval_cc_users = UserDisplayMultipleChoiceField(
+        queryset=CustomUser.objects.none(),
+        required=False,
+        widget=forms.SelectMultiple(attrs={"class": "form-select", "size": "5"}),
+        label="CC Users After Approval (optional)",
+        help_text="These users will be CC'd only when the approved CBS request is emailed to the concerned user.",
+    )
     requested_by_name = forms.CharField(
         required=False,
         label="Requested By - Name",
@@ -980,6 +1063,12 @@ class CBSAccessRequestForm(forms.Form):
         label="I acknowledge the CBS/Pumori user endorsement.",
         widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
     )
+    attachments = MultipleFileField(
+        required=False,
+        widget=MultipleFileInput(attrs={"class": "form-control", "multiple": True}),
+        label="Attachments (optional)",
+        help_text="Optional. Attach supporting documents for this CBS access request.",
+    )
 
     def __init__(self, *args, **kwargs):
         request_user = kwargs.pop("request_user", None)
@@ -994,6 +1083,10 @@ class CBSAccessRequestForm(forms.Form):
         self.fields["recommender"].queryset = queryset
         self.fields["second_recommender"].queryset = queryset
         self.fields["approver"].queryset = queryset
+        self.fields["post_approval_assigned_to"].queryset = queryset
+        self.fields["post_approval_cc_users"].queryset = CustomUser.objects.filter(
+            is_active=True
+        ).exclude(email="").exclude(email__isnull=True).order_by("first_name", "last_name", "username")
         self.fields["access_user"].queryset = CustomUser.objects.filter(is_active=True).order_by(
             "first_name",
             "last_name",
@@ -1012,7 +1105,7 @@ class CBSAccessRequestForm(forms.Form):
             display_name = (request_user.get_full_name() or request_user.username or "").strip()
             department_value = (getattr(request_user, "department", "") or "").strip()
             if self.office_type == "branch":
-                branch_value = (getattr(request_user, "branch", "") or "").strip()
+                branch_value = _branch_profile_label_for_name(getattr(request_user, "branch", ""))
                 department_value = " / ".join(value for value in [branch_value, department_value] if value)
             self.initial.setdefault("name", display_name)
             self.initial.setdefault("designation", (getattr(request_user, "position", "") or "").strip())
@@ -1024,6 +1117,9 @@ class CBSAccessRequestForm(forms.Form):
 
     def clean_subject(self):
         return "CBS Access Request"
+
+    def clean_attachments(self):
+        return _clean_uploaded_files(self.cleaned_data.get("attachments"))
 
     def clean(self):
         cleaned_data = super().clean()
@@ -1040,6 +1136,7 @@ class CBSAccessRequestForm(forms.Form):
         cleaned_data["second_recommender"] = second_recommender
         approver = cleaned_data.get("approver")
         access_user = cleaned_data.get("access_user")
+        post_approval_assigned_to = cleaned_data.get("post_approval_assigned_to")
         if second_recommender and not recommender:
             self.add_error("second_recommender", "Select the first recommender before selecting a second recommender.")
         if recommender and approver and recommender.id == approver.id:
@@ -1060,11 +1157,20 @@ class CBSAccessRequestForm(forms.Form):
                 self.add_error("second_recommender", "Second recommended by cannot be the user who requested this CBS access.")
             if approver and approver.id == request_user.id:
                 self.add_error("approver", "Approved by cannot be the user who requested this CBS access.")
+            if post_approval_assigned_to and post_approval_assigned_to.id == request_user.id:
+                self.add_error("post_approval_assigned_to", "Assign after approval cannot be the user who requested this CBS access.")
         if not access_user:
             self.add_error("access_user", "Select the user who needs CBS access so their acknowledgement signature can be captured.")
         elif not getattr(access_user, "signature_image", None):
             self.add_error("access_user", "The selected user does not have a profile signature uploaded by admin.")
         else:
+            entered_access_name = _normalize_person_name(cleaned_data.get("name"))
+            if entered_access_name and entered_access_name not in _user_name_candidates(access_user):
+                official_name = (access_user.get_full_name() or getattr(access_user, "username", "") or "").strip()
+                self.add_error(
+                    "name",
+                    f"Name must match the selected acknowledgement signature user: {official_name}.",
+                )
             if recommender and recommender.id == access_user.id:
                 self.add_error("recommender", "Recommended by cannot be the user who needs access / acknowledgement signature.")
             if second_recommender and second_recommender.id == access_user.id:
@@ -1072,24 +1178,88 @@ class CBSAccessRequestForm(forms.Form):
             if approver and approver.id == access_user.id:
                 self.add_error("approver", "Approved by cannot be the user who needs access / acknowledgement signature.")
 
-        requested_by_name = (cleaned_data.get("requested_by_name") or "").strip().casefold()
-
-        def selected_user_names(user):
-            if not user:
-                return set()
-            full_name = ((user.get_full_name() or "").strip()).casefold()
-            username = (getattr(user, "username", "") or "").strip().casefold()
-            return {value for value in [full_name, username] if value}
+        requested_by_name = _normalize_person_name(cleaned_data.get("requested_by_name"))
 
         if requested_by_name:
-            if recommender and requested_by_name in selected_user_names(recommender):
+            if recommender and requested_by_name in _user_name_candidates(recommender):
                 self.add_error("recommender", "Recommended by cannot be the same person entered as User Requested By.")
-            if second_recommender and requested_by_name in selected_user_names(second_recommender):
+            if second_recommender and requested_by_name in _user_name_candidates(second_recommender):
                 self.add_error("second_recommender", "Second recommended by cannot be the same person entered as User Requested By.")
-            if approver and requested_by_name in selected_user_names(approver):
+            if approver and requested_by_name in _user_name_candidates(approver):
                 self.add_error("approver", "Approved by cannot be the same person entered as User Requested By.")
         cleaned_data["old_user_id"] = old_user_id
         cleaned_data["amendment_reason"] = amendment_reason
+        return cleaned_data
+
+
+class CBSSignoffChainUpdateForm(forms.Form):
+    recommender = UserDisplayChoiceField(
+        queryset=CustomUser.objects.none(),
+        required=False,
+        widget=forms.Select(attrs={"class": "form-select"}),
+        label="Digital Recommended By (optional)",
+        empty_label="Send directly to approver",
+    )
+    second_recommender = UserDisplayChoiceField(
+        queryset=CustomUser.objects.none(),
+        required=False,
+        widget=forms.Select(attrs={"class": "form-select"}),
+        label="Second Digital Recommended By (optional)",
+        empty_label="No second recommender",
+    )
+    approver = UserDisplayChoiceField(
+        queryset=CustomUser.objects.none(),
+        widget=forms.Select(attrs={"class": "form-select"}),
+        label="Digital Approved By",
+        empty_label="Select final approver",
+    )
+
+    def __init__(self, *args, request_user=None, office_type="head_office", locked_fields=None, **kwargs):
+        self._request_user = request_user
+        self.office_type = (office_type or "head_office").strip()
+        self.locked_fields = set(locked_fields or [])
+        super().__init__(*args, **kwargs)
+        queryset = CustomUser.objects.filter(is_active=True)
+        if request_user and getattr(request_user, "id", None):
+            queryset = queryset.exclude(id=request_user.id)
+        queryset = queryset.order_by("first_name", "last_name", "username")
+        self.fields["recommender"].queryset = queryset
+        self.fields["second_recommender"].queryset = queryset
+        self.fields["approver"].queryset = queryset
+        if self.office_type == "branch":
+            self.fields["recommender"].label = "Digital Recommended By (Branch / Operation)"
+        else:
+            self.fields["second_recommender"].widget = forms.HiddenInput()
+        for field_name in self.locked_fields:
+            if field_name in self.fields:
+                self.fields[field_name].disabled = True
+                self.fields[field_name].help_text = "This stage is already completed and cannot be changed."
+
+    def clean(self):
+        cleaned_data = super().clean()
+        recommender = cleaned_data.get("recommender")
+        second_recommender = cleaned_data.get("second_recommender") if self.office_type == "branch" else None
+        cleaned_data["second_recommender"] = second_recommender
+        approver = cleaned_data.get("approver")
+        request_user = getattr(self, "_request_user", None)
+
+        if second_recommender and not recommender:
+            self.add_error("second_recommender", "Select the first recommender before selecting a second recommender.")
+        if recommender and approver and recommender.id == approver.id:
+            self.add_error("recommender", "Recommended by and approved by must be different users.")
+            self.add_error("approver", "Recommended by and approved by must be different users.")
+        if recommender and second_recommender and recommender.id == second_recommender.id:
+            self.add_error("second_recommender", "First and second recommended by users must be different.")
+        if second_recommender and approver and second_recommender.id == approver.id:
+            self.add_error("second_recommender", "Second recommended by and approved by must be different users.")
+            self.add_error("approver", "Second recommended by and approved by must be different users.")
+        if request_user is not None:
+            if recommender and recommender.id == request_user.id:
+                self.add_error("recommender", "Recommended by cannot be the user who requested this CBS access.")
+            if second_recommender and second_recommender.id == request_user.id:
+                self.add_error("second_recommender", "Second recommended by cannot be the user who requested this CBS access.")
+            if approver and approver.id == request_user.id:
+                self.add_error("approver", "Approved by cannot be the user who requested this CBS access.")
         return cleaned_data
 
 

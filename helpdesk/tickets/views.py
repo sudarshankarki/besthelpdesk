@@ -66,6 +66,7 @@ from .models import (
     TicketMessageAttachment,
     can_access_ticket_chat,
     can_manage_ticket_chat_privacy,
+    get_ticket_chat_access_user_ids,
     incident_report_person_display,
     parse_department_list,
     parse_email_list,
@@ -74,6 +75,7 @@ from .forms import (
     CBSAccessRequestForm,
     CBS_BRANCH_USER_GROUP_CHOICES,
     CBS_USER_GROUP_CHOICES,
+    CBSSignoffChainUpdateForm,
     IncidentReportForm,
     IncidentReportNotifiedSignoffFormSet,
     IncidentResponseTemplateForm,
@@ -556,6 +558,12 @@ def _can_claim_department_ticket(user, ticket):
 def _apply_ticket_display_status(ticket, remote_access_approval=None):
     solved_statuses = {"resolved", "closed", "cancelled_duplicate"}
     approval_kind = _approval_request_kind(ticket)
+    if getattr(ticket, "status", "") == "cancelled_duplicate":
+        ticket.display_status_value = ticket.status
+        ticket.display_status_label = ticket.get_status_display()
+        ticket.display_status_chip_class = _status_chip_class(ticket.status)
+        ticket.show_priority_badge = True
+        return False
     cbs_approved = (
         approval_kind == "CBS Access"
         and remote_access_approval is not None
@@ -863,11 +871,31 @@ def _send_incident_report_submission_email(request, ticket, incident_report, cc_
     return warnings
 
 
+def _is_incident_report_finally_acknowledged(incident_report):
+    if incident_report is None or getattr(incident_report, "correction_requested_at", None):
+        return False
+    if not getattr(incident_report, "registered_signature", None):
+        return False
+
+    signoffs = [
+        signoff
+        for signoff in _ordered_notified_signoffs(incident_report)
+        if signoff.user_id
+    ]
+    if not signoffs:
+        return False
+    return all(bool(signoff.snapshot_signature) for signoff in signoffs)
+
+
 def _is_incident_report_locked(ticket, incident_report):
     return bool(
         incident_report is not None
         and not getattr(incident_report, "correction_requested_at", None)
-        and (getattr(incident_report, "submitted_at", None) or getattr(ticket, "status", "") == "closed")
+        and (
+            getattr(incident_report, "submitted_at", None)
+            or getattr(ticket, "status", "") == "closed"
+            or _is_incident_report_finally_acknowledged(incident_report)
+        )
     )
 
 
@@ -988,6 +1016,19 @@ def _cbs_access_group_choices(request_type=None):
 
 def _cbs_access_office_label(request_type=None):
     return "Branch Office" if _cbs_access_office_type_from_request_type(request_type) == "branch" else "Head Office"
+
+
+def _cbs_access_has_second_recommender(data=None, remote_access_approval=None):
+    data = data or {}
+    request_type = data.get("request_type") or getattr(getattr(remote_access_approval, "ticket", None), "request_type", "")
+    if _cbs_access_office_type_from_request_type(request_type) != "branch":
+        return False
+    return bool(
+        getattr(remote_access_approval, "second_recommender_id", None)
+        or getattr(data.get("second_recommender"), "id", None)
+        or data.get("second_recommender_id")
+        or data.get("branch_second_recommended_by_name")
+    )
 
 
 def _notify_remote_access_reviewer(request, ticket, remote_access_approval):
@@ -1141,6 +1182,39 @@ def _build_email_attachments(uploads):
     return email_attachments
 
 
+def _store_ticket_attachments(ticket, uploads, uploaded_by):
+    uploads = uploads or []
+    if not uploads:
+        return
+    minio_cfg = get_minio_config()
+    s3 = get_s3_client()
+    for upload in uploads:
+        object_key = TicketMessageAttachment.build_object_key(ticket.id, upload.name)
+        content_type = getattr(upload, "content_type", "") or "application/octet-stream"
+        if hasattr(upload, "seek"):
+            upload.seek(0)
+        s3.upload_fileobj(
+            upload,
+            minio_cfg.bucket,
+            object_key,
+            ExtraArgs={"ContentType": content_type},
+        )
+        message = TicketMessage.objects.create(
+            ticket=ticket,
+            author=uploaded_by,
+            body=f"Attachment uploaded: {upload.name}",
+        )
+        TicketMessageAttachment.objects.create(
+            ticket=ticket,
+            message=message,
+            uploaded_by=uploaded_by,
+            object_key=object_key,
+            filename=upload.name,
+            content_type=content_type,
+            size=upload.size or 0,
+        )
+
+
 def _clean_email_recipients(recipients):
     cleaned = []
     seen = set()
@@ -1217,6 +1291,42 @@ def _send_assignment_email(request, ticket, assigned_by, action_label, email_att
         messages.warning(request, f"{action_label}, but assignment email could not be sent.")
 
 
+def _assign_cbs_access_after_final_approval(request, ticket, remote_access_approval):
+    assignee = getattr(remote_access_approval, "post_approval_assigned_to", None)
+    if assignee is None or not getattr(assignee, "is_active", False):
+        return
+
+    previous_assigned_to_id = ticket.assigned_to_id
+    ticket.assigned_to = assignee
+    ticket._assignment_actor_id = request.user.id
+    if ticket.status in {"new", "acknowledged"}:
+        ticket.status = "in_progress"
+    ticket.save(update_fields=["assigned_to", "status", "updated_at"])
+
+    if previous_assigned_to_id != assignee.id:
+        _notify_user(
+            assignee.id,
+            {
+                "kind": "ticket_assigned",
+                "level": "info",
+                "title": "Approved CBS access assigned",
+                "message": f"{ticket.ticket_id}: {ticket.subject}",
+                "url": reverse("ticket_detail", args=[ticket.id]),
+                "ticket_id": ticket.id,
+                "ticket_code": ticket.ticket_id,
+                "assigned_by": request.user.get_username(),
+            },
+        )
+        cbs_access_data = _cbs_access_data_from_ticket(ticket)
+        _send_assignment_email(
+            request,
+            ticket,
+            request.user,
+            "Approved CBS access request assigned",
+            cc_list=parse_email_list(cbs_access_data.get("post_approval_cc_emails") or ""),
+        )
+
+
 def _status_chip_class(status_value):
     normalized = (status_value or "").strip().lower()
     if normalized in {"approved", "resolved"}:
@@ -1246,6 +1356,17 @@ def _validate_ticket_close_token(ticket, token, max_age_seconds):
 
 def _is_support_user(user):
     return user.is_authenticated and (user.is_staff or user.is_superuser or user.is_itsupport)
+
+
+def _is_central_operation_user(user):
+    return user.is_authenticated and (
+        user.is_superuser
+        or getattr(user, "is_central_operation", False)
+    )
+
+
+def _can_access_cbs_access_requests(user):
+    return _is_support_user(user) or _is_central_operation_user(user)
 
 
 def _is_admin_user(user):
@@ -1637,6 +1758,10 @@ def _is_ticket_participant(user, ticket):
         user.is_staff
         or user.is_superuser
         or user.is_itsupport
+        or (
+            getattr(user, "is_central_operation", False)
+            and _approval_request_kind(ticket) == "CBS Access"
+        )
         or ticket.created_by_id == user.id
         or ticket.assigned_to_id == user.id
         or _is_department_ticket_member(user, ticket)
@@ -1841,7 +1966,55 @@ def _incident_report_resolution_blockers(ticket):
 def _can_decide_remote_access_approval(user, remote_access_approval):
     if remote_access_approval is None:
         return False
+    ticket = getattr(remote_access_approval, "ticket", None)
+    if getattr(ticket, "status", "") == "cancelled_duplicate":
+        return False
     return remote_access_approval.can_decide(user)
+
+
+def _can_cancel_cbs_access_request(user, ticket, remote_access_approval):
+    return bool(
+        _approval_request_kind(ticket) == "CBS Access"
+        and remote_access_approval is not None
+        and getattr(ticket, "created_by_id", None) == getattr(user, "id", None)
+        and getattr(ticket, "status", "") not in {"cancelled_duplicate", "resolved", "closed"}
+        and remote_access_approval.status != RemoteAccessApproval.STATUS_APPROVED
+    )
+
+
+def _can_manage_cbs_access_signoff_chain(user, ticket, remote_access_approval):
+    return bool(
+        _approval_request_kind(ticket) == "CBS Access"
+        and remote_access_approval is not None
+        and getattr(ticket, "status", "") not in {"cancelled_duplicate", "resolved", "closed"}
+        and remote_access_approval.status in {
+            RemoteAccessApproval.STATUS_PENDING_RECOMMENDATION,
+            RemoteAccessApproval.STATUS_PENDING_APPROVAL,
+        }
+        and (
+            _is_central_operation_user(user)
+            or getattr(ticket, "created_by_id", None) == getattr(user, "id", None)
+        )
+    )
+
+
+def _cbs_signoff_chain_initial(remote_access_approval):
+    return {
+        "recommender": getattr(remote_access_approval, "recommender_id", None) or "",
+        "second_recommender": getattr(remote_access_approval, "second_recommender_id", None) or "",
+        "approver": getattr(remote_access_approval, "approver_id", None) or "",
+    }
+
+
+def _cbs_signoff_chain_locked_fields(remote_access_approval):
+    locked_fields = []
+    if getattr(remote_access_approval, "recommended_by_id", None):
+        locked_fields.append("recommender")
+    if getattr(remote_access_approval, "second_recommended_by_id", None):
+        locked_fields.append("second_recommender")
+    if getattr(remote_access_approval, "decided_by_id", None):
+        locked_fields.append("approver")
+    return locked_fields
 
 
 def _build_same_host_webrtc_ice_servers(request):
@@ -1911,7 +2084,45 @@ def _with_runtime_turn_credentials(ice_servers, user):
     return resolved_servers
 
 
-def _build_ticket_detail_context(request, ticket, chat_privacy_form=None, remote_access_approval_form=None):
+def _ticket_call_participant_options(ticket, actor_user_id):
+    user_ids = get_ticket_chat_access_user_ids(ticket, actor_user_id)
+    if not user_ids:
+        return []
+    users_by_id = {
+        user.id: user
+        for user in CustomUser.objects.filter(id__in=user_ids).order_by("first_name", "last_name", "username")
+    }
+    options = []
+    for user_id in user_ids:
+        user = users_by_id.get(user_id)
+        if not user:
+            continue
+        label = (user.get_full_name() or user.username or "").strip()
+        meta = " / ".join(
+            value
+            for value in [
+                (getattr(user, "department", "") or "").strip(),
+                (getattr(user, "branch", "") or "").strip(),
+            ]
+            if value
+        )
+        options.append(
+            {
+                "id": user.id,
+                "label": label,
+                "meta": meta,
+            }
+        )
+    return options
+
+
+def _build_ticket_detail_context(
+    request,
+    ticket,
+    chat_privacy_form=None,
+    remote_access_approval_form=None,
+    cbs_signoff_chain_form=None,
+):
     remote_access_approval = _get_remote_access_approval(ticket)
     incident_report = _get_incident_report(ticket)
     approval_request_kind = _approval_request_kind(ticket)
@@ -1920,6 +2131,7 @@ def _build_ticket_detail_context(request, ticket, chat_privacy_form=None, remote
         and remote_access_approval is not None
         and remote_access_approval.status == RemoteAccessApproval.STATUS_APPROVED
     )
+    cbs_access_resolution_locked = _is_cbs_access_request_resolution_locked(ticket, remote_access_approval)
     cbs_access_context = (
         _cbs_access_detail_context(ticket, remote_access_approval)
         if approval_request_kind == "CBS Access"
@@ -1937,6 +2149,7 @@ def _build_ticket_detail_context(request, ticket, chat_privacy_form=None, remote
         ticket.is_remote_access_request = False
     can_update_ticket = (
         not is_remote_access_request
+        and not cbs_access_resolution_locked
         and (_is_support_user(request.user) or ticket.assigned_to_id == request.user.id)
     )
     show_incident_report = not is_remote_access_request and ticket.request_type == "incident"
@@ -1961,14 +2174,42 @@ def _build_ticket_detail_context(request, ticket, chat_privacy_form=None, remote
     if can_view_chat:
         _mark_ticket_chat_seen(ticket, request.user)
         chat_messages = TicketMessage.objects.filter(ticket=ticket).select_related("author", "attachment")
+        call_participants = _ticket_call_participant_options(ticket, request.user.id)
     else:
         chat_messages = TicketMessage.objects.none()
+        call_participants = []
 
     if chat_privacy_form is None and can_manage_ticket_chat_privacy(request.user, ticket):
         chat_privacy_form = TicketChatPrivacyForm(ticket=ticket, user=request.user)
 
     if remote_access_approval_form is None and _can_decide_remote_access_approval(request.user, remote_access_approval):
         remote_access_approval_form = RemoteAccessApprovalDecisionForm()
+
+    can_manage_cbs_signoff_chain = _can_manage_cbs_access_signoff_chain(
+        request.user,
+        ticket,
+        remote_access_approval,
+    )
+    if cbs_signoff_chain_form is None and can_manage_cbs_signoff_chain:
+        cbs_signoff_chain_form = CBSSignoffChainUpdateForm(
+            request_user=ticket.created_by,
+            office_type=_cbs_access_office_type_from_request_type(ticket.request_type),
+            initial=_cbs_signoff_chain_initial(remote_access_approval),
+            locked_fields=_cbs_signoff_chain_locked_fields(remote_access_approval),
+        )
+    can_assign_approved_cbs_access = _can_assign_approved_cbs_access(
+        request.user,
+        ticket,
+        remote_access_approval,
+    )
+    can_change_cbs_concerned_user = _can_change_cbs_concerned_user(
+        request.user,
+        ticket,
+        remote_access_approval,
+    )
+    current_cbs_concerned_user = None
+    if approval_request_kind == "CBS Access" and remote_access_approval is not None:
+        current_cbs_concerned_user = ticket.display_assignee or getattr(remote_access_approval, "post_approval_assigned_to", None)
 
     assignment_logs = list(
         ticket.assignment_logs.all().select_related("assigned_to", "assigned_by", "ticket")
@@ -1978,6 +2219,7 @@ def _build_ticket_detail_context(request, ticket, chat_privacy_form=None, remote
             (log.assigned_to for log in assignment_logs if log.assigned_to_id),
             None,
         )
+    _apply_cbs_assignment_display(ticket, remote_access_approval)
 
     context = {
         'ticket': ticket,
@@ -1993,12 +2235,21 @@ def _build_ticket_detail_context(request, ticket, chat_privacy_form=None, remote
         'can_manage_chat_privacy': can_manage_ticket_chat_privacy(request.user, ticket),
         'chat_privacy_form': chat_privacy_form,
         'chat_attachment_batch_limit': TICKET_CHAT_ATTACHMENT_MAX_FILES,
+        'call_participants': call_participants,
         'webrtc_ice_servers_json': json.dumps(webrtc_ice_servers),
         'remote_access_approval': remote_access_approval,
         'approval_request_kind': approval_request_kind,
         'approval_request_kind_lower': approval_request_kind.lower(),
         'can_decide_remote_access_approval': _can_decide_remote_access_approval(request.user, remote_access_approval),
+        'can_cancel_cbs_access_request': _can_cancel_cbs_access_request(request.user, ticket, remote_access_approval),
         'remote_access_approval_form': remote_access_approval_form,
+        'can_manage_cbs_signoff_chain': can_manage_cbs_signoff_chain,
+        'cbs_signoff_chain_form': cbs_signoff_chain_form,
+        'cbs_signoff_chain_title': (
+            "Central Operation Sign-off Chain"
+            if _is_central_operation_user(request.user)
+            else "Update Sign-off Chain"
+        ),
         'incident_report': incident_report,
         'show_incident_report': show_incident_report,
         'can_manage_incident_report': can_manage_incident_report,
@@ -2006,27 +2257,32 @@ def _build_ticket_detail_context(request, ticket, chat_privacy_form=None, remote
         'chat_unavailable_message': chat_unavailable_message,
         'show_assignment_history': not is_remote_access_request,
         'cbs_access_support_workflow': cbs_access_support_workflow,
-        'can_requester_assign_cbs_access': bool(
+        'cbs_access_resolution_locked': cbs_access_resolution_locked,
+        'can_send_approved_cbs_document': bool(
             cbs_access_support_workflow
-            and ticket.created_by_id == request.user.id
-            and ticket.status not in {"resolved", "closed", "cancelled_duplicate"}
+            and not cbs_access_resolution_locked
+        ),
+        'can_requester_assign_cbs_access': bool(
+            can_assign_approved_cbs_access
+        ),
+        'can_assign_approved_cbs_access': bool(
+            can_assign_approved_cbs_access
         ),
         'cbs_assignment_users': _cbs_assignment_user_options() if (
-            cbs_access_support_workflow
-            and ticket.created_by_id == request.user.id
-            and ticket.status not in {"resolved", "closed", "cancelled_duplicate"}
+            can_change_cbs_concerned_user
         ) else [],
         'cbs_assignment_cc_users': _cbs_assignment_user_options() if (
-            cbs_access_support_workflow
-            and ticket.created_by_id == request.user.id
-            and ticket.status not in {"resolved", "closed", "cancelled_duplicate"}
+            can_assign_approved_cbs_access
         ) else [],
         'cbs_assignment_departments': _cbs_assignment_department_options() if (
-            cbs_access_support_workflow
-            and ticket.created_by_id == request.user.id
-            and ticket.status not in {"resolved", "closed", "cancelled_duplicate"}
+            can_assign_approved_cbs_access
         ) else [],
+        'can_change_cbs_concerned_user': bool(can_change_cbs_concerned_user),
+        'current_cbs_concerned_user_id': getattr(current_cbs_concerned_user, "id", None),
         'ticket_back_url': ticket_back_url,
+        'ticket_attachments': list(
+            ticket.attachments.select_related("uploaded_by").order_by("created_at", "id")
+        ) if approval_request_kind == "CBS Access" else [],
     }
     context.update(cbs_access_context)
     return context
@@ -2107,12 +2363,24 @@ def _attach_ticket_display_assignees(tickets):
     return tickets
 
 
+def _apply_cbs_assignment_display(ticket, remote_access_approval=None):
+    if _approval_request_kind(ticket) != "CBS Access" or remote_access_approval is None:
+        ticket.cbs_assignment_label = "Assigned"
+        ticket.cbs_assignment_user = ticket.display_assignee
+        return ticket
+
+    ticket.cbs_assignment_label = "Concerned User (CBS Access Provider)"
+    ticket.cbs_assignment_user = ticket.display_assignee or getattr(remote_access_approval, "post_approval_assigned_to", None)
+    return ticket
+
+
 def _attach_support_ticket_display_flags(tickets, user):
     tickets = _attach_ticket_chat_flags(tickets, user)
     tickets = _attach_ticket_display_assignees(tickets)
     for ticket in tickets:
         remote_access_approval = _get_remote_access_approval(ticket)
         cbs_approved = _apply_ticket_display_status(ticket, remote_access_approval)
+        _apply_cbs_assignment_display(ticket, remote_access_approval)
         if remote_access_approval is not None and not cbs_approved:
             ticket.can_support_manage = False
         else:
@@ -2167,6 +2435,9 @@ def _build_ticket_attachment_event(ticket, message, attachment, author):
             "filename": attachment.filename,
             "size": attachment.size,
             "content_type": attachment.content_type,
+            "is_image": attachment.is_image,
+            "is_pdf": attachment.is_pdf,
+            "is_viewable": attachment.is_viewable,
             "view_url": reverse("ticket_attachment_view", args=[ticket.id, attachment.id]),
             "download_url": reverse("ticket_attachment_download", args=[ticket.id, attachment.id]),
         },
@@ -2180,6 +2451,17 @@ def _can_delete_ticket_message(user, message):
         return True
     attachment = message.attachment if hasattr(message, "attachment") else None
     return bool(attachment and attachment.uploaded_by_id == user.id)
+
+
+def _can_access_ticket_message_attachment(user, ticket):
+    if can_access_ticket_chat(user, ticket):
+        return True
+    if ticket.request_type == "incident" and _can_access_incident_report(user, ticket):
+        return True
+    return bool(
+        _approval_request_kind(ticket) == "CBS Access"
+        and _is_ticket_participant(user, ticket)
+    )
 
 
 def _new_submission_token():
@@ -2292,6 +2574,9 @@ def _ensure_incident_report_template_for_ticket(ticket, user=None, incident_data
 @login_required
 def create_ticket(request):
     submission_token = _new_submission_token()
+    ticket_scope = (request.POST.get("ticket_scope") if request.method == "POST" else request.GET.get("ticket_scope") or "").strip()
+    if ticket_scope != "cbs_access":
+        ticket_scope = ""
     if request.method == 'POST':
         submission_token = _clean_submission_token(request.POST.get("submission_token")) or _new_submission_token()
         existing_ticket = _ticket_for_submission_token(submission_token)
@@ -2299,7 +2584,19 @@ def create_ticket(request):
             messages.info(request, "This ticket was already submitted. Opening the existing ticket instead.")
             return redirect("ticket_detail", ticket_id=existing_ticket.id)
 
-        form = TicketForm(request.POST, request.FILES, user=request.user)
+        form = TicketForm(request.POST, request.FILES, user=request.user, request_type_scope=ticket_scope)
+        selected_request_type = (request.POST.get("request_type") or "").strip()
+        if ticket_scope == "cbs_access" and selected_request_type not in {"cbs_access_ho", "cbs_access_branch"}:
+            form.add_error("request_type", "Select Head Office or Branch CBS access request.")
+            return render(
+                request,
+                "tickets/create_ticket.html",
+                {"form": form, "submission_token": submission_token, "ticket_scope": ticket_scope},
+            )
+        if selected_request_type == "cbs_access_ho":
+            return redirect("cbs_access_request")
+        if selected_request_type == "cbs_access_branch":
+            return redirect("cbs_access_branch_request")
         if form.is_valid():
             attachments = form.cleaned_data.get("attachments") or []
             email_attachments = _build_email_attachments(attachments)
@@ -2314,7 +2611,7 @@ def create_ticket(request):
                     return render(
                         request,
                         "tickets/create_ticket.html",
-                        {"form": form, "submission_token": submission_token},
+                        {"form": form, "submission_token": submission_token, "ticket_scope": ticket_scope},
                     )
 
             ticket = form.save(commit=False)
@@ -2407,10 +2704,13 @@ def create_ticket(request):
             return redirect('ticket_list')
     else:
         request_type = (request.GET.get("request_type") or "service").strip()
-        allowed_request_types = {value for value, _label in Ticket.REQUEST_TYPE_CHOICES}
-        if request_type not in allowed_request_types:
-            request_type = "service"
-        form = TicketForm(initial={"request_type": request_type}, user=request.user)
+        if ticket_scope == "cbs_access":
+            request_type = ""
+        else:
+            allowed_request_types = {value for value, _label in Ticket.REQUEST_TYPE_CHOICES}
+            if request_type not in allowed_request_types:
+                request_type = "service"
+        form = TicketForm(initial={"request_type": request_type}, user=request.user, request_type_scope=ticket_scope)
 
     return render(
         request,
@@ -2418,6 +2718,7 @@ def create_ticket(request):
         {
             'form': form,
             'submission_token': submission_token,
+            'ticket_scope': ticket_scope,
         },
     )
 
@@ -2489,6 +2790,14 @@ def _build_cbs_access_request_description(cleaned_data):
         cleaned_data.get("requested_signature_signed_at")
         or timezone.localtime(timezone.now()).strftime("%m/%d/%Y")
     )
+    post_approval_cc_users = cleaned_data.get("post_approval_cc_users") or []
+    post_approval_cc_emails = cleaned_data.get("post_approval_cc_emails") or []
+    if post_approval_cc_users:
+        post_approval_cc_emails = [
+            (getattr(user, "email", "") or "").strip()
+            for user in post_approval_cc_users
+            if (getattr(user, "email", "") or "").strip()
+        ]
     return "\n".join(
         [
             "BEST FINANCE COMPANY LIMITED",
@@ -2518,6 +2827,7 @@ def _build_cbs_access_request_description(cleaned_data):
             f"Recommended By User: {_cbs_description_user_value(cleaned_data.get('recommender'), 'Not Required')}",
             f"Second Recommended By User: {_cbs_description_user_value(cleaned_data.get('second_recommender'), 'Not Required')}",
             f"Approved By User: {_cbs_description_user_value(cleaned_data.get('approver'), '-')}",
+            f"After Approval CC Emails: {', '.join(post_approval_cc_emails) or '-'}",
             "",
             "User Requested By",
             f"Name: {cleaned_data.get('requested_by_name') or '-'}",
@@ -2975,6 +3285,7 @@ def _cbs_access_pillow_image_payloads(cleaned_data=None, remote_access_approval=
     request_type = data.get("request_type") or "cbs_access_ho"
     office_type = _cbs_access_office_type_from_request_type(request_type)
     is_branch_request = office_type == "branch"
+    show_second_recommender = _cbs_access_has_second_recommender(data, remote_access_approval)
 
     def display_user(user):
         if not user:
@@ -3113,7 +3424,7 @@ def _cbs_access_pillow_image_payloads(cleaned_data=None, remote_access_approval=
     y = row(y + 16, [420, full_w - 420], 82, ["Reason for Amendment for Old User", value("amendment_reason") or "-"], fonts=[bold_font, body_font], max_lines=3)
     y += 24
 
-    if is_branch_request:
+    if is_branch_request and show_second_recommender:
         sign_widths = [full_w // 4, full_w // 4, full_w // 4, full_w - (full_w // 4) * 3]
         sign_labels = ["User Requested By", "Recommended By", "Second Recommended By", "Approved By"]
         name_values = [value("requested_by_name"), value("recommended_by_name"), value("branch_second_recommended_by_name"), value("approved_by_name")]
@@ -3368,6 +3679,64 @@ def _clear_incident_docx_header(root):
         root.remove(child)
 
 
+def _normalize_incident_docx_header(root, *, incident_subject="", incident_id=""):
+    ns = WORD_NS["w"]
+
+    def qname(name):
+        return f"{{{ns}}}{name}"
+
+    _clear_incident_docx_header(root)
+    table = ET.SubElement(root, qname("tbl"))
+    table_properties = ET.SubElement(table, qname("tblPr"))
+    ET.SubElement(table_properties, qname("tblW"), {qname("w"): "9360", qname("type"): "dxa"})
+    borders = ET.SubElement(table_properties, qname("tblBorders"))
+    for border_name in ("top", "left", "bottom", "right", "insideH", "insideV"):
+        ET.SubElement(borders, qname(border_name), {qname("val"): "none", qname("sz"): "0", qname("space"): "0", qname("color"): "auto"})
+    ET.SubElement(table_properties, qname("tblLayout"), {qname("type"): "fixed"})
+    table_grid = ET.SubElement(table, qname("tblGrid"))
+    for width in ("2340", "4680", "2340"):
+        ET.SubElement(table_grid, qname("gridCol"), {qname("w"): width})
+
+    row = ET.SubElement(table, qname("tr"))
+
+    def add_cell(width, texts=(), *, alignment="left", bold=False, color=None):
+        cell = ET.SubElement(row, qname("tc"))
+        cell_properties = ET.SubElement(cell, qname("tcPr"))
+        ET.SubElement(cell_properties, qname("tcW"), {qname("w"): width, qname("type"): "dxa"})
+        normalized_texts = list(texts or [""])
+        for text in normalized_texts:
+            paragraph = ET.SubElement(cell, qname("p"))
+            paragraph_properties = ET.SubElement(paragraph, qname("pPr"))
+            ET.SubElement(paragraph_properties, qname("pStyle"), {qname("val"): "Header"})
+            ET.SubElement(paragraph_properties, qname("jc"), {qname("val"): alignment})
+            ET.SubElement(paragraph_properties, qname("spacing"), {qname("before"): "0", qname("after"): "0"})
+            if not text:
+                continue
+            run = ET.SubElement(paragraph, qname("r"))
+            if bold or color:
+                run_properties = ET.SubElement(run, qname("rPr"))
+                if bold:
+                    ET.SubElement(run_properties, qname("b"))
+                    ET.SubElement(run_properties, qname("bCs"))
+                if color:
+                    ET.SubElement(run_properties, qname("color"), {qname("val"): color})
+            text_node = ET.SubElement(run, qname("t"))
+            text_node.text = text
+
+    add_cell("2340")
+    add_cell(
+        "4680",
+        [
+            (_format_incident_docx_value(incident_subject) or "Incident Report")[:120],
+            (_format_incident_docx_value(incident_id) or "")[:80],
+        ],
+        alignment="center",
+        bold=True,
+        color="4A4A4A",
+    )
+    add_cell("2340", ["Shared Confidential"], alignment="right", bold=True, color="D28A8A")
+
+
 def _set_docx_paragraph_alignment(paragraph, alignment="center"):
     paragraph_properties = paragraph.find("w:pPr", WORD_NS)
     if paragraph_properties is None:
@@ -3489,6 +3858,140 @@ def _normalize_incident_docx_cover_page(root):
     cover_table.append(_cover_row(560, version_text))
     if date_text:
         cover_table.append(_cover_row(560, date_text))
+
+
+def _incident_footer_signoff_entries_from_data(data):
+    entries = [
+        {
+            "person_name": data.get("incident_registered_person"),
+            "signature_upload": data.get("registered_signature"),
+        }
+    ]
+    for signoff in sorted(data.get("notified_signoffs") or [], key=lambda item: item.get("level") or 0):
+        entries.append(
+            {
+                "person_name": signoff.get("person_name"),
+                "signature_upload": signoff.get("signature_upload"),
+            }
+        )
+    return entries
+
+
+def _blank_docx_relationships_root():
+    return ET.Element(f"{{{DOCX_REL_NS}}}Relationships")
+
+
+def _normalize_incident_docx_footer(
+    root,
+    *,
+    signoff_entries=None,
+    rels_root=None,
+    content_types_root=None,
+    media_items=None,
+):
+    ns = WORD_NS["w"]
+
+    def qname(name):
+        return f"{{{ns}}}{name}"
+
+    page_number_color = "9A9A9A"
+
+    def add_paragraph(parent, *, alignment=None):
+        paragraph = ET.SubElement(parent, qname("p"))
+        paragraph_properties = ET.SubElement(paragraph, qname("pPr"))
+        ET.SubElement(paragraph_properties, qname("pStyle"), {qname("val"): "Footer"})
+        if alignment:
+            ET.SubElement(paragraph_properties, qname("jc"), {qname("val"): alignment})
+        return paragraph
+
+    def add_run(paragraph, text=None, *, bold=False, color=None):
+        run = ET.SubElement(paragraph, qname("r"))
+        if bold or color:
+            run_properties = ET.SubElement(run, qname("rPr"))
+            if bold:
+                ET.SubElement(run_properties, qname("b"))
+                ET.SubElement(run_properties, qname("bCs"))
+            if color:
+                ET.SubElement(run_properties, qname("color"), {qname("val"): color})
+        if text is not None:
+            text_node = ET.SubElement(run, qname("t"))
+            text_node.text = text
+            if text.startswith(" ") or text.endswith(" "):
+                text_node.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+        return run
+
+    def add_field(paragraph, instruction):
+        add_run(paragraph, bold=True, color=page_number_color).append(ET.Element(qname("fldChar"), {qname("fldCharType"): "begin"}))
+        instruction_run = add_run(paragraph, bold=True, color=page_number_color)
+        instruction_text = ET.SubElement(instruction_run, qname("instrText"))
+        instruction_text.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+        instruction_text.text = f" {instruction}  \\* Arabic  \\* MERGEFORMAT "
+        add_run(paragraph, bold=True, color=page_number_color).append(ET.Element(qname("fldChar"), {qname("fldCharType"): "separate"}))
+        add_run(paragraph, "1", bold=True, color=page_number_color)
+        add_run(paragraph, bold=True, color=page_number_color).append(ET.Element(qname("fldChar"), {qname("fldCharType"): "end"}))
+
+    for child in list(root):
+        root.remove(child)
+
+    table = ET.SubElement(root, qname("tbl"))
+    table_properties = ET.SubElement(table, qname("tblPr"))
+    ET.SubElement(table_properties, qname("tblW"), {qname("w"): "9360", qname("type"): "dxa"})
+    borders = ET.SubElement(table_properties, qname("tblBorders"))
+    for border_name in ("top", "left", "bottom", "right", "insideH", "insideV"):
+        ET.SubElement(borders, qname(border_name), {qname("val"): "none", qname("sz"): "0", qname("space"): "0", qname("color"): "auto"})
+    ET.SubElement(table_properties, qname("tblLayout"), {qname("type"): "fixed"})
+    table_grid = ET.SubElement(table, qname("tblGrid"))
+    ET.SubElement(table_grid, qname("gridCol"), {qname("w"): "4680"})
+    ET.SubElement(table_grid, qname("gridCol"), {qname("w"): "4680"})
+
+    signoff_entries = [entry for entry in (signoff_entries or []) if entry and entry.get("signature_upload")]
+    if signoff_entries:
+        for chunk_start in range(0, len(signoff_entries), 3):
+            chunk = signoff_entries[chunk_start : chunk_start + 3]
+            signature_row = ET.SubElement(table, qname("tr"))
+            cell_width = str(int(9360 / max(len(chunk), 1)))
+            for index, entry in enumerate(chunk):
+                cell = ET.SubElement(signature_row, qname("tc"))
+                cell_properties = ET.SubElement(cell, qname("tcPr"))
+                ET.SubElement(cell_properties, qname("tcW"), {qname("w"): cell_width, qname("type"): "dxa"})
+                payload = _incident_signature_png_payload(entry.get("signature_upload"))
+                if payload and rels_root is not None and content_types_root is not None and media_items is not None:
+                    rel_id = _add_docx_png_relationship(
+                        rels_root,
+                        content_types_root,
+                        media_items,
+                        f"incident_footer_signature_{chunk_start + index + 1}",
+                        payload,
+                    )
+                    if rel_id:
+                        _append_docx_image_to_existing_cell(
+                            cell,
+                            rel_id,
+                            name="Signature",
+                            width_emu="640000",
+                            height_emu="220000",
+                            alignment="center",
+                        )
+                else:
+                    add_paragraph(cell, alignment="center")
+
+    row = ET.SubElement(table, qname("tr"))
+    left_cell = ET.SubElement(row, qname("tc"))
+    left_cell_properties = ET.SubElement(left_cell, qname("tcPr"))
+    ET.SubElement(left_cell_properties, qname("tcW"), {qname("w"): "4680", qname("type"): "dxa"})
+    right_cell = ET.SubElement(row, qname("tc"))
+    right_cell_properties = ET.SubElement(right_cell, qname("tcPr"))
+    ET.SubElement(right_cell_properties, qname("tcW"), {qname("w"): "4680", qname("type"): "dxa"})
+
+    page_paragraph = add_paragraph(left_cell)
+    add_run(page_paragraph, "Page ", color=page_number_color)
+    add_field(page_paragraph, "PAGE")
+    add_run(page_paragraph, " of ", color=page_number_color)
+    add_field(page_paragraph, "NUMPAGES")
+
+    add_paragraph(right_cell, alignment="right")
+
+    add_paragraph(root)
 
 
 def _format_cbs_docx_value(value):
@@ -3807,7 +4310,46 @@ def _build_cbs_access_docx(cleaned_data=None, remote_access_approval=None):
             if cell_index < len(cells):
                 _set_docx_cell_text(cells[cell_index], value)
 
+        def remove_cell(row_index, cell_index):
+            cells = rows[row_index].findall("./w:tc", WORD_NS)
+            if cell_index < len(cells):
+                rows[row_index].remove(cells[cell_index])
+
+        def cell_properties(cell):
+            properties = cell.find("./w:tcPr", WORD_NS)
+            if properties is None:
+                properties = ET.Element(f"{{{WORD_NS['w']}}}tcPr")
+                cell.insert(0, properties)
+            return properties
+
+        def set_cell_grid_span(cell, span):
+            properties = cell_properties(cell)
+            grid_span = properties.find("./w:gridSpan", WORD_NS)
+            if span > 1:
+                if grid_span is None:
+                    grid_span = ET.SubElement(properties, f"{{{WORD_NS['w']}}}gridSpan")
+                grid_span.set(f"{{{WORD_NS['w']}}}val", str(span))
+            elif grid_span is not None:
+                properties.remove(grid_span)
+
+        def set_cell_width(cell, width):
+            properties = cell_properties(cell)
+            cell_width = properties.find("./w:tcW", WORD_NS)
+            if cell_width is None:
+                cell_width = ET.SubElement(properties, f"{{{WORD_NS['w']}}}tcW")
+            cell_width.set(f"{{{WORD_NS['w']}}}w", str(width))
+            cell_width.set(f"{{{WORD_NS['w']}}}type", "dxa")
+
+        def set_even_three_column_signoff_row(row_index):
+            cells = rows[row_index].findall("./w:tc", WORD_NS)
+            if len(cells) != 3:
+                return
+            for cell in cells:
+                set_cell_grid_span(cell, 2)
+                set_cell_width(cell, 3120)
+
         is_branch_request = request_type == "cbs_access_branch"
+        show_second_recommender = _cbs_access_has_second_recommender(data, remote_access_approval)
         if rows:
             title_cells = rows[0].findall("./w:tc", WORD_NS)
             if title_cells:
@@ -3846,6 +4388,10 @@ def _build_cbs_access_docx(cleaned_data=None, remote_access_approval=None):
         set_cell(reason_row_index, 0, f"Reason for Amendment for Old User:  {_format_cbs_docx_value(data.get('amendment_reason'))}")
         for cell_index in range(4 if is_branch_request else 3):
             set_cell(signature_row_index, cell_index, "")
+        if is_branch_request and not show_second_recommender:
+            for row_index in (signature_row_index - 1, signature_row_index, name_row_index, designation_row_index, date_row_index):
+                remove_cell(row_index, 2)
+                set_even_three_column_signoff_row(row_index)
 
         media_items = {}
         logo_payload = _docx_logo_png_payload()
@@ -3921,14 +4467,14 @@ def _build_cbs_access_docx(cleaned_data=None, remote_access_approval=None):
             approved_snapshot = _cbs_access_snapshot_field(remote_access_approval, "approved_signature_snapshot")
             recommended_cell_index = 1
             second_recommended_cell_index = 2
-            approved_cell_index = 3 if is_branch_request else 2
+            approved_cell_index = 3 if is_branch_request and show_second_recommender else 2
             if _cbs_recommendation_signature_allowed(remote_access_approval) and recommended_snapshot:
                 add_signature_snapshot_to_cell(signature_row_index, recommended_cell_index, recommended_snapshot, "cbs_recommended_signature")
             elif _cbs_recommendation_signature_allowed(remote_access_approval):
                 add_signature_to_cell(signature_row_index, recommended_cell_index, remote_access_approval.recommended_by, "cbs_recommended_signature")
-            if is_branch_request and _cbs_second_recommendation_signature_allowed(remote_access_approval) and second_recommended_snapshot:
+            if is_branch_request and show_second_recommender and _cbs_second_recommendation_signature_allowed(remote_access_approval) and second_recommended_snapshot:
                 add_signature_snapshot_to_cell(signature_row_index, second_recommended_cell_index, second_recommended_snapshot, "cbs_second_recommended_signature")
-            elif is_branch_request and _cbs_second_recommendation_signature_allowed(remote_access_approval):
+            elif is_branch_request and show_second_recommender and _cbs_second_recommendation_signature_allowed(remote_access_approval):
                 add_signature_to_cell(signature_row_index, second_recommended_cell_index, remote_access_approval.second_recommended_by, "cbs_second_recommended_signature")
             if _cbs_approval_signature_allowed(remote_access_approval) and approved_snapshot:
                 add_signature_snapshot_to_cell(signature_row_index, approved_cell_index, approved_snapshot, "cbs_approved_signature")
@@ -3937,21 +4483,21 @@ def _build_cbs_access_docx(cleaned_data=None, remote_access_approval=None):
 
         set_cell(name_row_index, 0, f"Name: {_format_cbs_docx_value(data.get('requested_by_name'))}")
         set_cell(name_row_index, 1, f"Name: {_format_cbs_docx_value(data.get('recommended_by_name'))}")
-        if is_branch_request:
+        if is_branch_request and show_second_recommender:
             set_cell(name_row_index, 2, f"Name: {_format_cbs_docx_value(data.get('branch_second_recommended_by_name'))}")
             set_cell(name_row_index, 3, f"Name: {_format_cbs_docx_value(data.get('approved_by_name'))}")
         else:
             set_cell(name_row_index, 2, f"Name: {_format_cbs_docx_value(data.get('approved_by_name'))}")
         set_cell(designation_row_index, 0, f"Designation: {_format_cbs_docx_value(data.get('requested_by_designation'))}")
         set_cell(designation_row_index, 1, f"Designation: {_format_cbs_docx_value(data.get('recommended_by_designation'))}")
-        if is_branch_request:
+        if is_branch_request and show_second_recommender:
             set_cell(designation_row_index, 2, f"Designation: {_format_cbs_docx_value(data.get('branch_second_recommended_by_designation'))}")
             set_cell(designation_row_index, 3, f"Designation: {_format_cbs_docx_value(data.get('approved_by_designation'))}")
         else:
             set_cell(designation_row_index, 2, f"Designation: {_format_cbs_docx_value(data.get('approved_by_designation'))}")
         set_cell(date_row_index, 0, f"Date: {_format_cbs_docx_value(data.get('requested_by_date'))}")
         set_cell(date_row_index, 1, f"Date: {_format_cbs_docx_value(data.get('recommended_by_date'))}")
-        if is_branch_request:
+        if is_branch_request and show_second_recommender:
             set_cell(date_row_index, 2, f"Date: {_format_cbs_docx_value(data.get('branch_second_recommended_by_date'))}")
             set_cell(date_row_index, 3, f"Date: {_format_cbs_docx_value(data.get('approved_by_date'))}")
         else:
@@ -4325,6 +4871,7 @@ def _cbs_access_data_from_ticket(ticket):
             "recommended by user": "recommender",
             "second recommended by user": "second_recommender",
             "approved by user": "approver",
+            "after approval cc emails": "post_approval_cc_emails",
         }
         if key == "type of user":
             data["user_type"] = "new" if value.casefold() == "new user" else "amendment"
@@ -4400,36 +4947,83 @@ def _cbs_access_form_initial_from_ticket(ticket):
             initial["second_recommender"] = remote_access_approval.second_recommender_id
         if getattr(remote_access_approval, "approver_id", None):
             initial["approver"] = remote_access_approval.approver_id
+        if getattr(remote_access_approval, "post_approval_assigned_to_id", None):
+            initial["post_approval_assigned_to"] = remote_access_approval.post_approval_assigned_to_id
+    cc_emails = parse_email_list(data.get("post_approval_cc_emails") or "")
+    if cc_emails:
+        initial["post_approval_cc_users"] = list(
+            CustomUser.objects.filter(email__in=cc_emails).values_list("id", flat=True)
+        )
     return initial
 
 
-def _reset_cbs_access_approval_for_resubmission(remote_access_approval, recommender, second_recommender, approver):
-    for field_name in (
-        "recommended_signature_snapshot",
-        "second_recommended_signature_snapshot",
-        "approved_signature_snapshot",
-    ):
-        snapshot = getattr(remote_access_approval, field_name, None)
-        if snapshot:
-            try:
-                snapshot.delete(save=False)
-            except Exception:
-                pass
-            setattr(remote_access_approval, field_name, None)
+def _delete_remote_access_signature_snapshot(remote_access_approval, field_name):
+    snapshot = getattr(remote_access_approval, field_name, None)
+    if snapshot:
+        try:
+            snapshot.delete(save=False)
+        except Exception:
+            pass
+        setattr(remote_access_approval, field_name, None)
+
+
+def _reset_cbs_access_approval_for_resubmission(
+    remote_access_approval,
+    recommender,
+    second_recommender,
+    approver,
+    *,
+    preserve_completed_matching_steps=False,
+):
+    previous_recommender_id = getattr(remote_access_approval, "recommender_id", None)
+    previous_second_recommender_id = getattr(remote_access_approval, "second_recommender_id", None)
+    recommender_id = getattr(recommender, "id", None)
+    second_recommender_id = getattr(second_recommender, "id", None)
+
+    preserve_first_recommendation = bool(
+        preserve_completed_matching_steps
+        and previous_recommender_id
+        and previous_recommender_id == recommender_id
+        and getattr(remote_access_approval, "recommended_by_id", None)
+    )
+    preserve_second_recommendation = bool(
+        preserve_completed_matching_steps
+        and preserve_first_recommendation
+        and previous_second_recommender_id
+        and previous_second_recommender_id == second_recommender_id
+        and getattr(remote_access_approval, "second_recommended_by_id", None)
+    )
+
+    for field_name in ("recommended_signature_snapshot", "second_recommended_signature_snapshot", "approved_signature_snapshot"):
+        if field_name == "recommended_signature_snapshot" and preserve_first_recommendation:
+            continue
+        if field_name == "second_recommended_signature_snapshot" and preserve_second_recommendation:
+            continue
+        _delete_remote_access_signature_snapshot(remote_access_approval, field_name)
+
+    if not preserve_first_recommendation:
+        remote_access_approval.recommendation_note = ""
+        remote_access_approval.recommended_by = None
+        remote_access_approval.recommended_at = None
+    if not preserve_first_recommendation or not preserve_second_recommendation:
+        remote_access_approval.second_recommendation_note = ""
+        remote_access_approval.second_recommended_by = None
+        remote_access_approval.second_recommended_at = None
+
+    remote_access_approval.decision_note = ""
+    remote_access_approval.decided_by = None
+    remote_access_approval.decided_at = None
 
     remote_access_approval.recommender = recommender
     remote_access_approval.second_recommender = second_recommender
     remote_access_approval.approver = approver
-    remote_access_approval.status = RemoteAccessApproval.initial_status_for(recommender, second_recommender)
-    remote_access_approval.recommendation_note = ""
-    remote_access_approval.recommended_by = None
-    remote_access_approval.recommended_at = None
-    remote_access_approval.second_recommendation_note = ""
-    remote_access_approval.second_recommended_by = None
-    remote_access_approval.second_recommended_at = None
-    remote_access_approval.decision_note = ""
-    remote_access_approval.decided_by = None
-    remote_access_approval.decided_at = None
+
+    if recommender and not getattr(remote_access_approval, "recommended_by_id", None):
+        remote_access_approval.status = RemoteAccessApproval.STATUS_PENDING_RECOMMENDATION
+    elif second_recommender and not getattr(remote_access_approval, "second_recommended_by_id", None):
+        remote_access_approval.status = RemoteAccessApproval.STATUS_PENDING_RECOMMENDATION
+    else:
+        remote_access_approval.status = RemoteAccessApproval.STATUS_PENDING_APPROVAL
 
 
 def _cbs_signature_view_url(ticket_id, role, user):
@@ -4491,12 +5085,53 @@ def _refresh_cbs_access_ticket_description(ticket, remote_access_approval):
         ticket.save(update_fields=["description", "updated_at"])
 
 
+def _is_cbs_access_request_finalized(ticket, remote_access_approval):
+    return bool(
+        _approval_request_kind(ticket) == "CBS Access"
+        and remote_access_approval is not None
+        and remote_access_approval.status == RemoteAccessApproval.STATUS_APPROVED
+    )
+
+
+def _is_cbs_access_request_resolution_locked(ticket, remote_access_approval):
+    return bool(
+        _is_cbs_access_request_finalized(ticket, remote_access_approval)
+        and ticket.status in {"resolved", "closed", "cancelled_duplicate"}
+    )
+
+
+def _can_assign_approved_cbs_access(user, ticket, remote_access_approval):
+    return bool(
+        _approval_request_kind(ticket) == "CBS Access"
+        and remote_access_approval is not None
+        and remote_access_approval.status == RemoteAccessApproval.STATUS_APPROVED
+        and not _is_cbs_access_request_resolution_locked(ticket, remote_access_approval)
+        and ticket.status not in {"resolved", "closed", "cancelled_duplicate"}
+        and ticket.created_by_id == getattr(user, "id", None)
+    )
+
+
+def _can_change_cbs_concerned_user(user, ticket, remote_access_approval):
+    return bool(
+        _approval_request_kind(ticket) == "CBS Access"
+        and remote_access_approval is not None
+        and remote_access_approval.status != RemoteAccessApproval.STATUS_REJECTED
+        and ticket.status not in {"resolved", "closed", "cancelled_duplicate"}
+        and (
+            ticket.created_by_id == getattr(user, "id", None)
+            or _is_support_user(user)
+            or _is_central_operation_user(user)
+        )
+    )
+
+
 def _cbs_access_detail_context(ticket, remote_access_approval):
     data = _cbs_access_data_with_approval(ticket, remote_access_approval)
 
     recommendation_signature_allowed = _cbs_recommendation_signature_allowed(remote_access_approval)
     second_recommendation_signature_allowed = _cbs_second_recommendation_signature_allowed(remote_access_approval)
     approval_signature_allowed = _cbs_approval_signature_allowed(remote_access_approval)
+    show_second_recommender = _cbs_access_has_second_recommender(data, remote_access_approval)
     recommender_user = getattr(remote_access_approval, "recommended_by", None) if recommendation_signature_allowed else None
     second_recommender_user = getattr(remote_access_approval, "second_recommended_by", None) if second_recommendation_signature_allowed else None
     approver_user = getattr(remote_access_approval, "decided_by", None) if approval_signature_allowed else None
@@ -4507,6 +5142,7 @@ def _cbs_access_detail_context(ticket, remote_access_approval):
         "cbs_user_group_rows": _cbs_user_group_rows(data.get("user_groups"), request_type=ticket.request_type),
         "cbs_office_type": _cbs_access_office_type_from_request_type(ticket.request_type),
         "cbs_office_label": _cbs_access_office_label(ticket.request_type),
+        "cbs_show_second_recommender": show_second_recommender,
         "cbs_recommended_signed": recommendation_signature_allowed,
         "cbs_second_recommended_signed": second_recommendation_signature_allowed,
         "cbs_approved_signed": approval_signature_allowed,
@@ -4663,6 +5299,9 @@ def cbs_access_request_send_document(request, ticket_id):
     if remote_access_approval is None or remote_access_approval.status != RemoteAccessApproval.STATUS_APPROVED:
         messages.error(request, "The approved CBS access document can be sent only after final approval.")
         return redirect("ticket_detail", ticket_id=ticket.id)
+    if _is_cbs_access_request_resolution_locked(ticket, remote_access_approval):
+        messages.error(request, "This approved CBS access request is resolved, so the approved document can no longer be sent from the ticket.")
+        return redirect("ticket_detail", ticket_id=ticket.id)
 
     recipient_value = (request.POST.get("document_recipient_emails") or "").strip()
     recipients = parse_email_list(recipient_value)
@@ -4708,12 +5347,13 @@ def cbs_access_request_send_document(request, ticket_id):
 
 @login_required
 @require_POST
-def cbs_access_request_assign_after_approval(request, ticket_id):
+def cbs_access_concerned_user_update(request, ticket_id):
     ticket = get_object_or_404(
         Ticket.objects.select_related(
             "created_by",
             "assigned_to",
             "remote_access_approval",
+            "remote_access_approval__post_approval_assigned_to",
             "remote_access_approval__recommended_by",
             "remote_access_approval__decided_by",
         ),
@@ -4723,28 +5363,44 @@ def cbs_access_request_assign_after_approval(request, ticket_id):
     if _approval_request_kind(ticket) != "CBS Access":
         messages.error(request, "This ticket is not a CBS access request.")
         return redirect("ticket_detail", ticket_id=ticket.id)
-    if ticket.created_by_id != request.user.id:
-        messages.error(request, "Only the requester can assign this approved CBS access request.")
+    if remote_access_approval is None:
+        messages.error(request, "This ticket does not have a CBS access approval request.")
         return redirect("ticket_detail", ticket_id=ticket.id)
-    if remote_access_approval is None or remote_access_approval.status != RemoteAccessApproval.STATUS_APPROVED:
-        messages.error(request, "CBS access can be assigned only after final approval.")
+    if not _can_change_cbs_concerned_user(request.user, ticket, remote_access_approval):
+        messages.error(request, "You are not allowed to change the concerned user for this CBS access request.")
         return redirect("ticket_detail", ticket_id=ticket.id)
     if ticket.status in {"resolved", "closed", "cancelled_duplicate"}:
-        messages.error(request, "This CBS access request is already solved and cannot be reassigned by requester.")
+        messages.error(request, "This CBS access request is already solved and cannot be changed.")
         return redirect("ticket_detail", ticket_id=ticket.id)
 
     assigned_to_id = (request.POST.get("cbs_assigned_to") or "").strip()
-    department = (request.POST.get("cbs_department") or "").strip()
     if not assigned_to_id.isdigit():
-        messages.error(request, "Select the concerned user to assign this CBS access request.")
+        messages.error(request, "Select the concerned user for this CBS access request.")
         return redirect("ticket_detail", ticket_id=ticket.id)
 
     assignee = CustomUser.objects.filter(id=int(assigned_to_id), is_active=True).first()
     if assignee is None:
-        messages.error(request, "Select an active user to assign this CBS access request.")
+        messages.error(request, "Select an active concerned user for this CBS access request.")
         return redirect("ticket_detail", ticket_id=ticket.id)
     if assignee.id == request.user.id:
-        messages.error(request, "You cannot assign this CBS access request to yourself.")
+        messages.error(request, "You cannot select yourself as the concerned user for this CBS access request.")
+        return redirect("ticket_detail", ticket_id=ticket.id)
+
+    is_approved = remote_access_approval.status == RemoteAccessApproval.STATUS_APPROVED
+    previous_concerned_user_id = (
+        ticket.assigned_to_id
+        if is_approved
+        else getattr(remote_access_approval, "post_approval_assigned_to_id", None)
+    )
+    if getattr(remote_access_approval, "post_approval_assigned_to_id", None) != assignee.id:
+        remote_access_approval.post_approval_assigned_to = assignee
+        remote_access_approval.save(update_fields=["post_approval_assigned_to"])
+
+    if not is_approved:
+        if previous_concerned_user_id == assignee.id:
+            messages.info(request, f"Concerned user is already {assignee.get_full_name() or assignee.username}.")
+        else:
+            messages.success(request, f"Concerned user changed to {assignee.get_full_name() or assignee.username}.")
         return redirect("ticket_detail", ticket_id=ticket.id)
 
     cc_user_ids = [
@@ -4774,13 +5430,25 @@ def cbs_access_request_assign_after_approval(request, ticket_id):
     previous_assigned_to_id = ticket.assigned_to_id
     ticket.assigned_to = assignee
     ticket._assignment_actor_id = request.user.id
-    if department:
-        ticket.department = department
     if ticket.status in {"new", "acknowledged"}:
         ticket.status = "in_progress"
-    ticket.save(update_fields=["assigned_to", "department", "status", "updated_at"])
+    ticket.save(update_fields=["assigned_to", "status", "updated_at"])
 
     if previous_assigned_to_id != assignee.id:
+        if previous_assigned_to_id:
+            _notify_user(
+                previous_assigned_to_id,
+                {
+                    "kind": "ticket_assignment_changed",
+                    "level": "info",
+                    "title": "CBS access assignment changed",
+                    "message": f"{ticket.ticket_id}: this approved CBS access request was reassigned by {request.user.get_username()}",
+                    "url": reverse("ticket_detail", args=[ticket.id]),
+                    "ticket_id": ticket.id,
+                    "ticket_code": ticket.ticket_id,
+                    "assigned_by": request.user.get_username(),
+                },
+            )
         _notify_user(
             assignee.id,
             {
@@ -4795,11 +5463,54 @@ def cbs_access_request_assign_after_approval(request, ticket_id):
             },
         )
         _send_assignment_email(request, ticket, request.user, "CBS access request assigned", cc_list=cc_emails)
+        messages.success(
+            request,
+            f"Concerned user changed to {assignee.get_full_name() or assignee.username}. The signed document was attached to the assignment email.",
+        )
+    else:
+        messages.info(
+            request,
+            f"Concerned user is already {assignee.get_full_name() or assignee.username}.",
+        )
+    return redirect("ticket_detail", ticket_id=ticket.id)
 
-    messages.success(
-        request,
-        f"Approved CBS access request assigned to {assignee.get_full_name() or assignee.username}. The signed document was attached to the assignment email.",
+
+@login_required
+@require_POST
+def cbs_access_request_assign_after_approval(request, ticket_id):
+    return cbs_access_concerned_user_update(request, ticket_id)
+
+
+@login_required
+@require_POST
+def cbs_access_request_cancel(request, ticket_id):
+    ticket = get_object_or_404(
+        Ticket.objects.select_related(
+            "created_by",
+            "remote_access_approval",
+        ),
+        id=ticket_id,
     )
+    remote_access_approval = _get_remote_access_approval(ticket)
+    if _approval_request_kind(ticket) != "CBS Access":
+        messages.error(request, "This ticket is not a CBS access request.")
+        return redirect("ticket_detail", ticket_id=ticket.id)
+    if not _can_cancel_cbs_access_request(request.user, ticket, remote_access_approval):
+        messages.error(request, "This CBS access request cannot be cancelled.")
+        return redirect("ticket_detail", ticket_id=ticket.id)
+
+    cancellation_reason = (request.POST.get("cancellation_reason") or "").strip()
+    if not cancellation_reason:
+        messages.error(request, "Enter a cancellation reason.")
+        return redirect("ticket_detail", ticket_id=ticket.id)
+
+    ticket.status = "cancelled_duplicate"
+    ticket.closed_note = cancellation_reason
+    ticket.closed_by = request.user
+    ticket.closed_at = timezone.now()
+    ticket.assigned_to = None
+    ticket.save(update_fields=["status", "closed_note", "closed_by", "closed_at", "assigned_to", "updated_at"])
+    messages.success(request, "CBS access request cancelled.")
     return redirect("ticket_detail", ticket_id=ticket.id)
 
 
@@ -4823,7 +5534,7 @@ def _cbs_access_request_view(request, office_type="head_office"):
             messages.info(request, "This CBS access request was already submitted. Opening the existing request instead.")
             return redirect("ticket_detail", ticket_id=existing_ticket.id)
 
-        form = CBSAccessRequestForm(request.POST, request_user=request.user, office_type=office_type)
+        form = CBSAccessRequestForm(request.POST, request.FILES, request_user=request.user, office_type=office_type)
         if form.is_valid():
             form.cleaned_data["request_type"] = request_type
             if request.POST.get("action") in {"download", "download_pdf"}:
@@ -4838,6 +5549,10 @@ def _cbs_access_request_view(request, office_type="head_office"):
             recommender = form.cleaned_data["recommender"]
             second_recommender = form.cleaned_data.get("second_recommender") if office_type == "branch" else None
             approver = form.cleaned_data["approver"]
+            post_approval_assigned_to = form.cleaned_data["post_approval_assigned_to"]
+            post_approval_cc_users = form.cleaned_data.get("post_approval_cc_users") or []
+            attachments = form.cleaned_data.get("attachments") or []
+            form.cleaned_data["post_approval_cc_users"] = post_approval_cc_users
             form.cleaned_data["second_recommender"] = second_recommender
             form.cleaned_data["requested_signature_user"] = request.user
             form.cleaned_data["requested_signature_signed_at"] = timezone.localtime(timezone.now()).strftime("%m/%d/%Y")
@@ -4862,6 +5577,7 @@ def _cbs_access_request_view(request, office_type="head_office"):
                         recommender=recommender,
                         second_recommender=second_recommender,
                         approver=approver,
+                        post_approval_assigned_to=post_approval_assigned_to,
                         status=RemoteAccessApproval.initial_status_for(recommender, second_recommender),
                     )
                     remote_access_approval.copy_signature_snapshot("requested_signature_snapshot", request.user, save=False)
@@ -4873,6 +5589,8 @@ def _cbs_access_request_view(request, office_type="head_office"):
                     remote_access_approval.save(
                         update_fields=["requested_signature_snapshot", "access_user_signature_snapshot"]
                     )
+                    if attachments:
+                        _store_ticket_attachments(ticket, attachments, request.user)
             except IntegrityError:
                 existing_ticket = _ticket_for_submission_token(submission_token)
                 if existing_ticket is not None:
@@ -4882,6 +5600,23 @@ def _cbs_access_request_view(request, office_type="head_office"):
                     )
                     return redirect("ticket_detail", ticket_id=existing_ticket.id)
                 raise
+            except Exception:
+                messages.error(request, "CBS access request could not be submitted because attachment storage is not configured.")
+                return render(
+                    request,
+                    "tickets/cbs_access_request.html",
+                    {
+                        "form": form,
+                        "submission_token": submission_token,
+                        "user_group_rows": _cbs_user_group_rows(
+                            form.data.getlist("user_groups"),
+                            request_type=request_type,
+                        ),
+                        "cbs_office_type": office_type,
+                        "cbs_request_type": request_type,
+                        "cbs_office_label": _cbs_access_office_label(request_type),
+                    },
+                )
 
             reviewer, stage_meta = _notify_remote_access_reviewer(request, ticket, remote_access_approval)
             reviewer_email = (getattr(reviewer, "email", "") or "").strip()
@@ -4939,16 +5674,19 @@ def cbs_access_request_correct(request, ticket_id):
     if _approval_request_kind(ticket) != "CBS Access" or remote_access_approval is None:
         messages.error(request, "This ticket is not a CBS access request.")
         return redirect("ticket_detail", ticket_id=ticket.id)
-    if ticket.created_by_id != request.user.id:
-        messages.error(request, "Only the requester can correct and resubmit this CBS access request.")
+    if ticket.status == "cancelled_duplicate":
+        messages.error(request, "This CBS access request has been cancelled and is no longer editable.")
         return redirect("ticket_detail", ticket_id=ticket.id)
-    if remote_access_approval.status != RemoteAccessApproval.STATUS_REJECTED:
-        messages.error(request, "Only rejected CBS access requests can be corrected and resubmitted.")
+    if ticket.created_by_id != request.user.id:
+        messages.error(request, "Only the requester can edit and resubmit this CBS access request.")
+        return redirect("ticket_detail", ticket_id=ticket.id)
+    if _is_cbs_access_request_finalized(ticket, remote_access_approval):
+        messages.error(request, "This CBS access request is finalized and is no longer editable.")
         return redirect("ticket_detail", ticket_id=ticket.id)
     office_type = _cbs_access_office_type_from_request_type(ticket.request_type)
 
     if request.method == "POST":
-        form = CBSAccessRequestForm(request.POST, request_user=request.user, office_type=office_type)
+        form = CBSAccessRequestForm(request.POST, request.FILES, request_user=request.user, office_type=office_type)
         if form.is_valid():
             form.cleaned_data["request_type"] = ticket.request_type
             if request.POST.get("action") in {"download", "download_pdf"}:
@@ -4964,6 +5702,10 @@ def cbs_access_request_correct(request, ticket_id):
             recommender = form.cleaned_data["recommender"]
             second_recommender = form.cleaned_data.get("second_recommender") if office_type == "branch" else None
             approver = form.cleaned_data["approver"]
+            post_approval_assigned_to = form.cleaned_data["post_approval_assigned_to"]
+            post_approval_cc_users = form.cleaned_data.get("post_approval_cc_users") or []
+            attachments = form.cleaned_data.get("attachments") or []
+            form.cleaned_data["post_approval_cc_users"] = post_approval_cc_users
             form.cleaned_data["second_recommender"] = second_recommender
             form.cleaned_data["requested_signature_user"] = request.user
             form.cleaned_data["requested_signature_signed_at"] = timezone.localtime(timezone.now()).strftime("%m/%d/%Y")
@@ -4977,6 +5719,7 @@ def cbs_access_request_correct(request, ticket_id):
                 ticket.save(update_fields=["subject", "department", "description", "status", "updated_at"])
 
                 _reset_cbs_access_approval_for_resubmission(remote_access_approval, recommender, second_recommender, approver)
+                remote_access_approval.post_approval_assigned_to = post_approval_assigned_to
                 for field_name in ("requested_signature_snapshot", "access_user_signature_snapshot"):
                     snapshot = getattr(remote_access_approval, field_name, None)
                     if snapshot:
@@ -4996,6 +5739,7 @@ def cbs_access_request_correct(request, ticket_id):
                         "recommender",
                         "second_recommender",
                         "approver",
+                        "post_approval_assigned_to",
                         "status",
                         "recommendation_note",
                         "recommended_by",
@@ -5013,6 +5757,8 @@ def cbs_access_request_correct(request, ticket_id):
                         "approved_signature_snapshot",
                     ]
                 )
+                if attachments:
+                    _store_ticket_attachments(ticket, attachments, request.user)
 
             reviewer, stage_meta = _notify_remote_access_reviewer(request, ticket, remote_access_approval)
             reviewer_email = (getattr(reviewer, "email", "") or "").strip()
@@ -5031,7 +5777,7 @@ def cbs_access_request_correct(request, ticket_id):
                     request,
                     f"CBS access request was resubmitted, but the selected {stage_meta['stage_label_lower']} user has no email address.",
                 )
-            messages.success(request, "CBS access request corrected and resubmitted for approval.")
+            messages.success(request, "CBS access request updated and resubmitted for approval.")
             return redirect("ticket_detail", ticket_id=ticket.id)
     else:
         form = CBSAccessRequestForm(request_user=request.user, office_type=office_type, initial=_cbs_access_form_initial_from_ticket(ticket))
@@ -5134,6 +5880,114 @@ def remote_access_request(request):
 
 @login_required
 @require_POST
+def cbs_access_signoff_chain_update(request, ticket_id):
+    ticket = get_object_or_404(
+        Ticket.objects.select_related(
+            "created_by",
+            "remote_access_approval",
+            "remote_access_approval__recommender",
+            "remote_access_approval__second_recommender",
+            "remote_access_approval__approver",
+        ),
+        id=ticket_id,
+    )
+    remote_access_approval = _get_remote_access_approval(ticket)
+    if not _can_manage_cbs_access_signoff_chain(request.user, ticket, remote_access_approval):
+        messages.error(request, "You can change the CBS sign-off chain only before final approval, and completed stages cannot be changed.")
+        return redirect("ticket_detail", ticket_id=ticket.id)
+
+    office_type = _cbs_access_office_type_from_request_type(ticket.request_type)
+    form = CBSSignoffChainUpdateForm(
+        request.POST,
+        request_user=ticket.created_by,
+        office_type=office_type,
+        initial=_cbs_signoff_chain_initial(remote_access_approval),
+        locked_fields=_cbs_signoff_chain_locked_fields(remote_access_approval),
+    )
+    if not form.is_valid():
+        messages.error(request, "Please correct the CBS sign-off chain.")
+        return render(
+            request,
+            "tickets/ticket_detail.html",
+            _build_ticket_detail_context(request, ticket, cbs_signoff_chain_form=form),
+        )
+
+    previous_reviewer = getattr(remote_access_approval, "current_reviewer", None)
+    recommender = form.cleaned_data["recommender"]
+    second_recommender = form.cleaned_data.get("second_recommender") if office_type == "branch" else None
+    approver = form.cleaned_data["approver"]
+    with transaction.atomic():
+        _reset_cbs_access_approval_for_resubmission(
+            remote_access_approval,
+            recommender,
+            second_recommender,
+            approver,
+            preserve_completed_matching_steps=True,
+        )
+        remote_access_approval.save(
+            update_fields=[
+                "recommender",
+                "second_recommender",
+                "approver",
+                "status",
+                "recommendation_note",
+                "recommended_by",
+                "recommended_at",
+                "second_recommendation_note",
+                "second_recommended_by",
+                "second_recommended_at",
+                "decision_note",
+                "decided_by",
+                "decided_at",
+                "recommended_signature_snapshot",
+                "second_recommended_signature_snapshot",
+                "approved_signature_snapshot",
+            ]
+        )
+        if ticket.status in {"resolved", "closed", "cancelled_duplicate"}:
+            ticket.status = "new"
+            ticket.save(update_fields=["status", "updated_at"])
+
+    _refresh_cbs_access_ticket_description(ticket, remote_access_approval)
+    reviewer, stage_meta = _notify_remote_access_reviewer(request, ticket, remote_access_approval)
+    reviewer_email = (getattr(reviewer, "email", "") or "").strip()
+    if reviewer_email:
+        mail_subject = f"{stage_meta['email_subject']}: {ticket.ticket_id}"
+        mail_body = _build_remote_access_request_email_body(request, ticket, remote_access_approval)
+        try:
+            _send_email_message(mail_subject, mail_body, [reviewer_email])
+        except Exception:
+            messages.warning(
+                request,
+                f"CBS sign-off chain was updated, but the {stage_meta['stage_label_lower']} email could not be sent.",
+            )
+    else:
+        messages.warning(
+            request,
+            f"CBS sign-off chain was updated, but the selected {stage_meta['stage_label_lower']} user has no email address.",
+        )
+
+    if previous_reviewer and getattr(previous_reviewer, "id", None) != getattr(reviewer, "id", None):
+        _notify_user(
+            previous_reviewer.id,
+            {
+                "kind": "remote_access_approval_update",
+                "level": "info",
+                "title": "CBS sign-off chain updated",
+                "message": f"{ticket.ticket_id}: this request was reassigned by {request.user.get_username()}",
+                "url": reverse("ticket_detail", args=[ticket.id]),
+                "ticket_id": ticket.id,
+                "ticket_code": ticket.ticket_id,
+                "delay": 12000,
+            },
+        )
+
+    messages.success(request, "CBS sign-off chain updated and sent to the current reviewer.")
+    return redirect("ticket_detail", ticket_id=ticket.id)
+
+
+@login_required
+@require_POST
 def remote_access_approval_update(request, ticket_id):
     ticket = get_object_or_404(
         Ticket.objects.select_related(
@@ -5148,6 +6002,7 @@ def remote_access_approval_update(request, ticket_id):
             "remote_access_approval__second_recommended_by",
             "remote_access_approval__approver",
             "remote_access_approval__decided_by",
+            "remote_access_approval__post_approval_assigned_to",
         ).prefetch_related("incident_report__signoffs__user"),
         id=ticket_id,
     )
@@ -5158,6 +6013,14 @@ def remote_access_approval_update(request, ticket_id):
     remote_access_approval = _get_remote_access_approval(ticket)
     if remote_access_approval is None:
         messages.error(request, "This ticket does not have a remote access approval request.")
+        return redirect("ticket_detail", ticket_id=ticket.id)
+
+    if ticket.status == "cancelled_duplicate":
+        messages.error(request, "This CBS access request has been cancelled and can no longer be approved or rejected.")
+        return redirect("ticket_detail", ticket_id=ticket.id)
+
+    if _is_cbs_access_request_finalized(ticket, remote_access_approval):
+        messages.error(request, "This CBS access request is finalized and is no longer editable.")
         return redirect("ticket_detail", ticket_id=ticket.id)
 
     if not _can_decide_remote_access_approval(request.user, remote_access_approval):
@@ -5182,6 +6045,12 @@ def remote_access_approval_update(request, ticket_id):
         note=form.cleaned_data["decision_note"],
     )
     _refresh_cbs_access_ticket_description(ticket, remote_access_approval)
+    if (
+        request_kind == "CBS Access"
+        and decision_stage == "approval"
+        and decision == RemoteAccessApproval.STATUS_APPROVED
+    ):
+        _assign_cbs_access_after_final_approval(request, ticket, remote_access_approval)
 
     actor_name = request.user.get_full_name().strip() or request.user.username
     status_label = remote_access_approval.get_status_display()
@@ -5280,18 +6149,21 @@ def ticket_list(request):
     if parsed_date_from and parsed_date_to and parsed_date_from > parsed_date_to:
         date_from, date_to = date_to, date_from
     is_support_user = _is_support_user(request.user)
-    scope_choices = []
-    allowed_scopes = {""}
-    if not is_support_user:
-        scope_choices = [
-            ("", "All visible tickets"),
-            ("created_by_me", "Created by me"),
-            ("assigned_to_me", "Assigned to me"),
-        ]
-        allowed_scopes.update(value for value, _label in scope_choices if value)
+    scope_choices = [
+        ("", "All visible tickets"),
+        ("created_by_me", "Created by me"),
+        ("assigned_to_me", "Assigned to me"),
+    ]
+    allowed_scopes = {value for value, _label in scope_choices}
     if scope not in allowed_scopes:
         scope = ""
-    base_queryset = Ticket.objects.select_related("created_by", "assigned_to", "incident_report", "remote_access_approval")
+    base_queryset = Ticket.objects.select_related(
+        "created_by",
+        "assigned_to",
+        "incident_report",
+        "remote_access_approval",
+        "remote_access_approval__post_approval_assigned_to",
+    )
     if is_support_user:
         latest_assigned_to_subquery = TicketAssignmentLog.objects.filter(
             ticket_id=OuterRef("pk"),
@@ -5300,7 +6172,8 @@ def ticket_list(request):
         tickets = base_queryset.annotate(
             last_assigned_to_id=Subquery(latest_assigned_to_subquery.values("assigned_to_id")[:1])
         ).filter(
-            Q(assigned_to=request.user)
+            Q(created_by=request.user)
+            | Q(assigned_to=request.user)
             | Q(status__in={"resolved", "closed"}, last_assigned_to_id=request.user.id)
             | _remote_access_ticket_q(request.user)
             | _incident_report_signer_ticket_q(request.user)
@@ -5340,6 +6213,7 @@ def ticket_list(request):
     for ticket in tickets:
         remote_access_approval = _get_remote_access_approval(ticket)
         cbs_approved = _apply_ticket_display_status(ticket, remote_access_approval)
+        _apply_cbs_assignment_display(ticket, remote_access_approval)
         if remote_access_approval is not None and not cbs_approved:
             ticket.is_remote_access_request = True
         else:
@@ -5357,7 +6231,7 @@ def ticket_list(request):
             'selected_request_type': request_type,
             'request_type_choices': request_type_choices,
             'scope_choices': scope_choices,
-            'show_scope_filters': not is_support_user,
+            'show_scope_filters': True,
             'status_choices': Ticket.TICKET_STATUS,
             'date_from': date_from,
             'date_to': date_to,
@@ -6419,6 +7293,8 @@ def _build_incident_response_template_docx(cleaned_data):
         _incident_docx_signature_summary(data),
     ]
     attachment_summary = "\n".join(part for part in attachment_parts if _format_incident_docx_value(part))
+    header_subject = data.get("incident_title") or data.get("subject") or data.get("incident_id") or "Incident Report"
+    footer_signoff_entries = _incident_footer_signoff_entries_from_data(data)
 
     label_value_pairs = {
         "Version": "1.0",
@@ -6503,13 +7379,36 @@ def _build_incident_response_template_docx(cleaned_data):
         _apply_incident_docx_label_bold(root, font_name="Times New Roman", font_size="24")
 
         with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as target_docx:
+            footer_relationships = {}
             for item in source_docx.infolist():
                 if item.filename == "word/document.xml":
                     target_docx.writestr(item, ET.tostring(root, encoding="utf-8", xml_declaration=True))
                 elif item.filename.startswith("word/header") and item.filename.endswith(".xml"):
                     header_root = ET.fromstring(source_docx.read(item.filename))
-                    _clear_incident_docx_header(header_root)
+                    _normalize_incident_docx_header(
+                        header_root,
+                        incident_subject=header_subject,
+                        incident_id=data.get("incident_id"),
+                    )
                     target_docx.writestr(item, ET.tostring(header_root, encoding="utf-8", xml_declaration=True))
+                elif item.filename.startswith("word/footer") and item.filename.endswith(".xml"):
+                    footer_root = ET.fromstring(source_docx.read(item.filename))
+                    footer_rels_path = f"word/_rels/{os.path.basename(item.filename)}.rels"
+                    try:
+                        footer_rels_root = ET.fromstring(source_docx.read(footer_rels_path))
+                    except KeyError:
+                        footer_rels_root = _blank_docx_relationships_root()
+                    _normalize_incident_docx_footer(
+                        footer_root,
+                        signoff_entries=footer_signoff_entries,
+                        rels_root=footer_rels_root,
+                        content_types_root=content_types_root,
+                        media_items=media_items,
+                    )
+                    footer_relationships[footer_rels_path] = footer_rels_root
+                    target_docx.writestr(item, ET.tostring(footer_root, encoding="utf-8", xml_declaration=True))
+                elif item.filename.startswith("word/_rels/footer") and item.filename.endswith(".xml.rels"):
+                    continue
                 elif item.filename == "word/glossary/document.xml":
                     glossary_root = ET.fromstring(source_docx.read(item.filename))
                     _clear_incident_docx_placeholders(glossary_root)
@@ -6520,6 +7419,11 @@ def _build_incident_response_template_docx(cleaned_data):
                     target_docx.writestr(item, _serialize_docx_package_xml(content_types_root, DOCX_CONTENT_TYPES_NS, "ct"))
                 else:
                     target_docx.writestr(item, source_docx.read(item.filename))
+            for rels_path, footer_rels_root in footer_relationships.items():
+                target_docx.writestr(
+                    rels_path,
+                    _serialize_docx_package_xml(footer_rels_root, DOCX_REL_NS, "rel"),
+                )
             for media_path, payload in media_items.items():
                 target_docx.writestr(media_path, payload)
 
@@ -6804,6 +7708,8 @@ def _build_ticket_incident_report_docx(ticket, incident_report):
         if signoff.get("level") and signoff.get("level") != final_signoff_level
     ]
     approved_signoff_levels = [final_signoff_level] if final_signoff_level else []
+    header_subject = getattr(ticket, "subject", "") or incident_report.display_title or incident_report.incident_id or "Incident Report"
+    footer_signoff_entries = _incident_footer_signoff_entries_from_data(data)
 
     label_value_pairs = {
         "Version": "1.0",
@@ -7037,13 +7943,36 @@ def _build_ticket_incident_report_docx(ticket, incident_report):
         _apply_incident_docx_label_bold(root, font_name="Times New Roman", font_size="24")
 
         with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as target_docx:
+            footer_relationships = {}
             for item in source_docx.infolist():
                 if item.filename == "word/document.xml":
                     target_docx.writestr(item, ET.tostring(root, encoding="utf-8", xml_declaration=True))
                 elif item.filename.startswith("word/header") and item.filename.endswith(".xml"):
                     header_root = ET.fromstring(source_docx.read(item.filename))
-                    _clear_incident_docx_header(header_root)
+                    _normalize_incident_docx_header(
+                        header_root,
+                        incident_subject=header_subject,
+                        incident_id=incident_report.incident_id,
+                    )
                     target_docx.writestr(item, ET.tostring(header_root, encoding="utf-8", xml_declaration=True))
+                elif item.filename.startswith("word/footer") and item.filename.endswith(".xml"):
+                    footer_root = ET.fromstring(source_docx.read(item.filename))
+                    footer_rels_path = f"word/_rels/{os.path.basename(item.filename)}.rels"
+                    try:
+                        footer_rels_root = ET.fromstring(source_docx.read(footer_rels_path))
+                    except KeyError:
+                        footer_rels_root = _blank_docx_relationships_root()
+                    _normalize_incident_docx_footer(
+                        footer_root,
+                        signoff_entries=footer_signoff_entries,
+                        rels_root=footer_rels_root,
+                        content_types_root=content_types_root,
+                        media_items=media_items,
+                    )
+                    footer_relationships[footer_rels_path] = footer_rels_root
+                    target_docx.writestr(item, ET.tostring(footer_root, encoding="utf-8", xml_declaration=True))
+                elif item.filename.startswith("word/_rels/footer") and item.filename.endswith(".xml.rels"):
+                    continue
                 elif item.filename == "word/glossary/document.xml":
                     glossary_root = ET.fromstring(source_docx.read(item.filename))
                     _clear_incident_docx_placeholders(glossary_root)
@@ -7054,6 +7983,11 @@ def _build_ticket_incident_report_docx(ticket, incident_report):
                     target_docx.writestr(item, _serialize_docx_package_xml(content_types_root, DOCX_CONTENT_TYPES_NS, "ct"))
                 else:
                     target_docx.writestr(item, source_docx.read(item.filename))
+            for rels_path, footer_rels_root in footer_relationships.items():
+                target_docx.writestr(
+                    rels_path,
+                    _serialize_docx_package_xml(footer_rels_root, DOCX_REL_NS, "rel"),
+                )
             for media_path, payload in media_items.items():
                 target_docx.writestr(media_path, payload)
 
@@ -7337,10 +8271,8 @@ def _copy_profile_signature_to_incident_report(incident_report, role, user):
     if not payload:
         raise ValueError("No profile signature is available for this user.")
 
-    source_name = os.path.basename(user.signature_image.name or f"{role}-signature.png")
     display_name = incident_report_person_display(user) or user.username
-    safe_display_name = get_valid_filename(display_name.replace(" ", "_")) or role
-    target_name = f"{role}_{safe_display_name}_{source_name}"
+    target_name = f"{role}.png"
     getattr(incident_report, signature_field_name).save(target_name, ContentFile(payload), save=False)
     setattr(incident_report, signed_at_field_name, timezone.now())
     if role == "registered":
@@ -7372,10 +8304,8 @@ def _copy_profile_signature_to_incident_signoff(signoff, user):
     if not payload:
         raise ValueError("No profile signature is available for this user.")
 
-    source_name = os.path.basename(user.signature_image.name or "notified-signature.png")
     display_name = incident_report_person_display(user) or user.username
-    safe_display_name = get_valid_filename(display_name.replace(" ", "_")) or "notified"
-    target_name = f"notified_level_{signoff.level}_{safe_display_name}_{source_name}"
+    target_name = f"l{signoff.level}.png"
     signoff.snapshot_signature.save(target_name, ContentFile(payload), save=False)
     signoff.signed_display_name = display_name
     signoff.signed_at = timezone.now()
@@ -7468,7 +8398,7 @@ def ticket_incident_report(request, ticket_id):
             messages.error(request, "Only support users, the ticket requester, or the incident commander can create or update incident reports.")
             return redirect("ticket_incident_report", ticket_id=ticket.id)
         if incident_report_locked:
-            messages.error(request, "This incident report has already been submitted and is no longer editable.")
+            messages.error(request, "This incident report is finalized and is no longer editable.")
             return redirect("ticket_incident_report", ticket_id=ticket.id)
 
         action = ((request.POST.get("action") or "save").strip().lower()) or "save"
@@ -7706,6 +8636,43 @@ def ticket_incident_report_download(request, ticket_id):
 
 
 @login_required
+def ticket_incident_report_attachment_view(request, ticket_id, attachment_id):
+    ticket = get_object_or_404(
+        Ticket.objects.select_related("incident_report"),
+        id=ticket_id,
+    )
+    incident_report = _get_incident_report(ticket)
+    if not _can_access_incident_report(request.user, ticket, incident_report):
+        messages.error(request, "You do not have access to this incident report.")
+        return redirect("ticket_list")
+
+    if incident_report is None:
+        messages.error(request, "No incident report has been created for this ticket yet.")
+        return redirect("ticket_incident_report", ticket_id=ticket.id)
+
+    try:
+        attachment = get_object_or_404(IncidentReportAttachment, incident_report=incident_report, id=attachment_id)
+    except (OperationalError, ProgrammingError):
+        messages.error(request, "Evidence attachment storage is not ready yet. Please run migrations first.")
+        return redirect("ticket_incident_report", ticket_id=ticket.id)
+    try:
+        attachment.file.open("rb")
+    except Exception:
+        messages.error(request, "The requested evidence file could not be found.")
+        return redirect("ticket_incident_report", ticket_id=ticket.id)
+
+    response = FileResponse(
+        attachment.file,
+        as_attachment=False,
+        filename=attachment.filename,
+        content_type=attachment.browser_content_type or "application/octet-stream",
+    )
+    if attachment.size:
+        response["Content-Length"] = str(attachment.size)
+    return response
+
+
+@login_required
 def ticket_incident_report_attachment_download(request, ticket_id, attachment_id):
     ticket = get_object_or_404(
         Ticket.objects.select_related("incident_report"),
@@ -7735,7 +8702,7 @@ def ticket_incident_report_attachment_download(request, ticket_id, attachment_id
         attachment.file,
         as_attachment=True,
         filename=attachment.filename,
-        content_type=attachment.content_type or "application/octet-stream",
+        content_type=attachment.browser_content_type or "application/octet-stream",
     )
     if attachment.size:
         response["Content-Length"] = str(attachment.size)
@@ -8421,8 +9388,11 @@ def ticket_detail(request, ticket_id):
             "incident_report__notified_user",
             "incident_report__incident_commander_user",
             "remote_access_approval",
+            "remote_access_approval__post_approval_assigned_to",
             "remote_access_approval__recommender",
             "remote_access_approval__recommended_by",
+            "remote_access_approval__second_recommender",
+            "remote_access_approval__second_recommended_by",
             "remote_access_approval__approver",
             "remote_access_approval__decided_by",
         ),
@@ -8632,7 +9602,7 @@ def ticket_chat_message_delete(request, ticket_id, message_id):
 @login_required
 def ticket_attachment_download(request, ticket_id, attachment_id):
     ticket = get_object_or_404(Ticket, id=ticket_id)
-    if not can_access_ticket_chat(request.user, ticket):
+    if not _can_access_ticket_message_attachment(request.user, ticket):
         return JsonResponse({"ok": False, "error": "Forbidden"}, status=403)
 
     attachment = get_object_or_404(TicketMessageAttachment, id=attachment_id, ticket=ticket)
@@ -8664,7 +9634,7 @@ def ticket_attachment_download(request, ticket_id, attachment_id):
 
     response = StreamingHttpResponse(
         stream(),
-        content_type=attachment.content_type or "application/octet-stream",
+        content_type=attachment.browser_content_type or "application/octet-stream",
     )
     filename = (attachment.filename or "download").replace('"', "")
     response["Content-Disposition"] = f'attachment; filename="{filename}"'
@@ -8676,7 +9646,7 @@ def ticket_attachment_download(request, ticket_id, attachment_id):
 @login_required
 def ticket_attachment_view(request, ticket_id, attachment_id):
     ticket = get_object_or_404(Ticket, id=ticket_id)
-    if not can_access_ticket_chat(request.user, ticket):
+    if not _can_access_ticket_message_attachment(request.user, ticket):
         return JsonResponse({"ok": False, "error": "Forbidden"}, status=403)
 
     attachment = get_object_or_404(TicketMessageAttachment, id=attachment_id, ticket=ticket)
@@ -8708,7 +9678,7 @@ def ticket_attachment_view(request, ticket_id, attachment_id):
 
     response = StreamingHttpResponse(
         stream(),
-        content_type=attachment.content_type or "application/octet-stream",
+        content_type=attachment.browser_content_type or "application/octet-stream",
     )
     filename = (attachment.filename or "download").replace('"', "")
     response["Content-Disposition"] = f'inline; filename="{filename}"'
@@ -8897,7 +9867,7 @@ def support_queue(request):
 
 
 @login_required
-@user_passes_test(_is_support_user)
+@user_passes_test(_can_access_cbs_access_requests)
 def support_cbs_access_requests(request):
     filters = _get_support_filters(request)
     tickets = _apply_support_filters(
@@ -9048,6 +10018,9 @@ def _ticket_update_protected(request, ticket_id):
         and remote_access_approval is not None
         and remote_access_approval.status == RemoteAccessApproval.STATUS_APPROVED
     )
+    if _is_cbs_access_request_resolution_locked(ticket, remote_access_approval):
+        messages.error(request, "This approved CBS access request is resolved and locked for ticket status updates.")
+        return redirect("ticket_detail", ticket_id=ticket.id)
     if remote_access_approval is not None and not cbs_access_support_workflow:
         messages.error(request, "Approval requests can be updated through the support workflow only after final CBS approval.")
         return redirect("ticket_detail", ticket_id=ticket.id)

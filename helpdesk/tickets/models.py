@@ -1,4 +1,5 @@
 import os
+import mimetypes
 import secrets
 import re
 import uuid
@@ -185,14 +186,14 @@ def portal_flash_image_upload_to(instance: "PortalFlashAnnouncement", filename: 
 def incident_report_signature_upload_to(instance: "IncidentReport", filename: str) -> str:
     name = get_valid_filename(os.path.basename(filename or "signature"))
     ticket_id = getattr(getattr(instance, "ticket", None), "ticket_id", "") or "unknown"
-    return f"incident_reports/{ticket_id}/{uuid.uuid4().hex}/{name}"
+    return f"ir/{ticket_id}/{uuid.uuid4().hex[:16]}/{name}"
 
 
 def incident_report_signoff_signature_upload_to(instance: "IncidentReportSignoff", filename: str) -> str:
     name = get_valid_filename(os.path.basename(filename or "signature"))
     report = getattr(instance, "incident_report", None)
     ticket_id = getattr(getattr(report, "ticket", None), "ticket_id", "") or "unknown"
-    return f"incident_reports/{ticket_id}/signoffs/{uuid.uuid4().hex}/{name}"
+    return f"ir/{ticket_id}/s/{uuid.uuid4().hex[:16]}/{name}"
 
 
 def incident_report_attachment_upload_to(instance: "IncidentReportAttachment", filename: str) -> str:
@@ -205,7 +206,7 @@ def incident_report_attachment_upload_to(instance: "IncidentReportAttachment", f
 def remote_access_signature_snapshot_upload_to(instance: "RemoteAccessApproval", filename: str) -> str:
     name = get_valid_filename(os.path.basename(filename or "signature"))
     ticket_id = getattr(getattr(instance, "ticket", None), "ticket_id", "") or "unknown"
-    return f"remote_access_approvals/{ticket_id}/signatures/{uuid.uuid4().hex}/{name}"
+    return f"ra/{ticket_id}/s/{uuid.uuid4().hex[:16]}/{name}"
 
 
 def incident_report_person_display(user) -> str:
@@ -680,12 +681,14 @@ class IncidentReport(models.Model):
     registered_signature = models.ImageField(
         upload_to=incident_report_signature_upload_to,
         storage=TicketImageStorage(),
+        max_length=255,
         null=True,
         blank=True,
     )
     notified_signature = models.ImageField(
         upload_to=incident_report_signature_upload_to,
         storage=TicketImageStorage(),
+        max_length=255,
         null=True,
         blank=True,
     )
@@ -914,6 +917,7 @@ class IncidentReportSignoff(models.Model):
     snapshot_signature = models.ImageField(
         upload_to=incident_report_signoff_signature_upload_to,
         storage=TicketImageStorage(),
+        max_length=255,
         null=True,
         blank=True,
     )
@@ -985,6 +989,7 @@ class IncidentReportAttachment(models.Model):
     file = models.FileField(
         upload_to=incident_report_attachment_upload_to,
         storage=TicketImageStorage(),
+        max_length=255,
     )
     original_name = models.CharField(max_length=255, blank=True, default="")
     content_type = models.CharField(max_length=255, blank=True, default="")
@@ -1021,6 +1026,26 @@ class IncidentReportAttachment(models.Model):
     @property
     def filename(self):
         return (self.original_name or os.path.basename(getattr(self.file, "name", "") or "") or "attachment").strip()
+
+    @property
+    def browser_content_type(self):
+        guessed_type = mimetypes.guess_type(self.filename or "")[0] or ""
+        content_type = (self.content_type or "").lower()
+        if content_type and content_type != "application/octet-stream":
+            return content_type
+        return guessed_type.lower() or content_type
+
+    @property
+    def is_image(self):
+        return self.browser_content_type.startswith("image/")
+
+    @property
+    def is_pdf(self):
+        return self.browser_content_type == "application/pdf"
+
+    @property
+    def is_viewable(self):
+        return self.is_image or self.is_pdf
 
     class Meta:
         ordering = ["created_at", "id"]
@@ -1064,6 +1089,13 @@ class RemoteAccessApproval(models.Model):
         blank=True,
         related_name="remote_access_approvals_to_review",
     )
+    post_approval_assigned_to = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="cbs_access_requests_to_receive_after_approval",
+    )
     status = models.CharField(max_length=32, choices=STATUS_CHOICES, default=STATUS_PENDING_APPROVAL)
     recommendation_note = models.TextField(blank=True, default="")
     second_recommendation_note = models.TextField(blank=True, default="")
@@ -1096,30 +1128,35 @@ class RemoteAccessApproval(models.Model):
     requested_signature_snapshot = models.ImageField(
         upload_to=remote_access_signature_snapshot_upload_to,
         storage=TicketImageStorage(),
+        max_length=255,
         null=True,
         blank=True,
     )
     access_user_signature_snapshot = models.ImageField(
         upload_to=remote_access_signature_snapshot_upload_to,
         storage=TicketImageStorage(),
+        max_length=255,
         null=True,
         blank=True,
     )
     recommended_signature_snapshot = models.ImageField(
         upload_to=remote_access_signature_snapshot_upload_to,
         storage=TicketImageStorage(),
+        max_length=255,
         null=True,
         blank=True,
     )
     second_recommended_signature_snapshot = models.ImageField(
         upload_to=remote_access_signature_snapshot_upload_to,
         storage=TicketImageStorage(),
+        max_length=255,
         null=True,
         blank=True,
     )
     approved_signature_snapshot = models.ImageField(
         upload_to=remote_access_signature_snapshot_upload_to,
         storage=TicketImageStorage(),
+        max_length=255,
         null=True,
         blank=True,
     )
@@ -1287,8 +1324,7 @@ class RemoteAccessApproval(models.Model):
             except Exception:
                 pass
 
-        source_name = os.path.basename(signature.name or f"{field_name}.png")
-        target_name = f"{field_name}_{source_name}"
+        target_name = f"{field_name.replace('_signature_snapshot', '')}.png"
         getattr(self, field_name).save(target_name, ContentFile(payload), save=False)
         if save:
             self.save(update_fields=[field_name])
@@ -1310,11 +1346,55 @@ def _get_ticket_remote_access_approval(ticket):
         return None
 
 
+def _get_ticket_approval_request(ticket):
+    if ticket is None:
+        return None
+    state = getattr(ticket, "_state", None)
+    fields_cache = getattr(state, "fields_cache", {}) if state is not None else {}
+    if "remote_access_approval" in fields_cache:
+        return fields_cache["remote_access_approval"]
+    try:
+        return ticket.remote_access_approval
+    except (AttributeError, RemoteAccessApproval.DoesNotExist):
+        return None
+
+
+def _is_cbs_access_ticket(ticket) -> bool:
+    return (getattr(ticket, "request_type", "") or "").startswith("cbs_access")
+
+
+def _cbs_access_chat_user_ids(ticket, approval=None):
+    approval = approval if approval is not None else _get_ticket_approval_request(ticket)
+    user_ids = [
+        getattr(ticket, "created_by_id", None),
+        getattr(ticket, "assigned_to_id", None),
+    ]
+    if approval is not None:
+        user_ids.extend(
+            [
+                getattr(approval, "recommender_id", None),
+                getattr(approval, "recommended_by_id", None),
+                getattr(approval, "second_recommender_id", None),
+                getattr(approval, "second_recommended_by_id", None),
+                getattr(approval, "approver_id", None),
+                getattr(approval, "decided_by_id", None),
+            ]
+        )
+    return [user_id for user_id in dict.fromkeys(user_ids) if user_id]
+
+
 def can_access_ticket_chat(user, ticket) -> bool:
     if not getattr(user, "is_authenticated", False):
         return False
-    if _get_ticket_remote_access_approval(ticket) is not None:
+    approval = _get_ticket_approval_request(ticket)
+    if approval is not None and not _is_cbs_access_ticket(ticket):
         return False
+    if approval is not None and _is_cbs_access_ticket(ticket):
+        if getattr(user, "is_staff", False) or getattr(user, "is_superuser", False) or getattr(user, "is_itsupport", False):
+            return True
+        if getattr(user, "is_central_operation", False):
+            return True
+        return getattr(user, "id", None) in _cbs_access_chat_user_ids(ticket, approval)
     if getattr(ticket, "created_by_id", None) == getattr(user, "id", None):
         return True
     if getattr(ticket, "assigned_to_id", None) == getattr(user, "id", None):
@@ -1329,7 +1409,7 @@ def can_access_ticket_chat(user, ticket) -> bool:
 def can_manage_ticket_chat_privacy(user, ticket) -> bool:
     if not getattr(user, "is_authenticated", False):
         return False
-    if _get_ticket_remote_access_approval(ticket) is not None:
+    if _get_ticket_approval_request(ticket) is not None:
         return False
     return bool(
         getattr(user, "is_staff", False)
@@ -1339,8 +1419,13 @@ def can_manage_ticket_chat_privacy(user, ticket) -> bool:
 
 
 def get_ticket_chat_access_user_ids(ticket, actor_user_id):
+    approval = _get_ticket_approval_request(ticket)
+    if approval is not None and _is_cbs_access_ticket(ticket):
+        user_ids = _cbs_access_chat_user_ids(ticket, approval)
+    else:
+        user_ids = [ticket.created_by_id, ticket.assigned_to_id]
     targets = []
-    for user_id in (ticket.created_by_id, ticket.assigned_to_id):
+    for user_id in user_ids:
         if not user_id or user_id == actor_user_id or user_id in targets:
             continue
         targets.append(user_id)
@@ -1516,6 +1601,26 @@ class TicketMessageAttachment(models.Model):
     def build_object_key(ticket_id: int, filename: str) -> str:
         name = get_valid_filename(os.path.basename(filename or "upload"))
         return f"tickets/{ticket_id}/{uuid.uuid4().hex}/{name}"
+
+    @property
+    def browser_content_type(self):
+        guessed_type = mimetypes.guess_type(self.filename or "")[0] or ""
+        content_type = (self.content_type or "").lower()
+        if content_type and content_type != "application/octet-stream":
+            return content_type
+        return guessed_type.lower() or content_type
+
+    @property
+    def is_image(self):
+        return self.browser_content_type.startswith("image/")
+
+    @property
+    def is_pdf(self):
+        return self.browser_content_type == "application/pdf"
+
+    @property
+    def is_viewable(self):
+        return self.is_image or self.is_pdf
 
     def __str__(self):
         return f"{self.ticket.ticket_id} | {self.filename}"
