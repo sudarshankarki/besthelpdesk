@@ -1110,7 +1110,6 @@ class CBSAccessRequestForm(forms.Form):
             self.initial.setdefault("name", display_name)
             self.initial.setdefault("designation", (getattr(request_user, "position", "") or "").strip())
             self.initial.setdefault("department", department_value)
-            self.initial.setdefault("access_user", request_user.id)
             self.initial.setdefault("requested_by_name", display_name)
             self.initial.setdefault("requested_by_designation", (getattr(request_user, "position", "") or "").strip())
             self.initial.setdefault("requested_by_date", timezone.localdate())
@@ -1157,8 +1156,6 @@ class CBSAccessRequestForm(forms.Form):
                 self.add_error("second_recommender", "Second recommended by cannot be the user who requested this CBS access.")
             if approver and approver.id == request_user.id:
                 self.add_error("approver", "Approved by cannot be the user who requested this CBS access.")
-            if post_approval_assigned_to and post_approval_assigned_to.id == request_user.id:
-                self.add_error("post_approval_assigned_to", "Assign after approval cannot be the user who requested this CBS access.")
         if not access_user:
             self.add_error("access_user", "Select the user who needs CBS access so their acknowledgement signature can be captured.")
         elif not getattr(access_user, "signature_image", None):
@@ -1177,10 +1174,17 @@ class CBSAccessRequestForm(forms.Form):
                 self.add_error("second_recommender", "Second recommended by cannot be the user who needs access / acknowledgement signature.")
             if approver and approver.id == access_user.id:
                 self.add_error("approver", "Approved by cannot be the user who needs access / acknowledgement signature.")
+            if post_approval_assigned_to and post_approval_assigned_to.id == access_user.id:
+                self.add_error(
+                    "post_approval_assigned_to",
+                    "Assign after approval cannot be the user who needs access / acknowledgement signature.",
+                )
 
         requested_by_name = _normalize_person_name(cleaned_data.get("requested_by_name"))
 
         if requested_by_name:
+            if post_approval_assigned_to and requested_by_name in _user_name_candidates(post_approval_assigned_to):
+                self.add_error("post_approval_assigned_to", "Assign after approval cannot be the same person entered as User Requested By.")
             if recommender and requested_by_name in _user_name_candidates(recommender):
                 self.add_error("recommender", "Recommended by cannot be the same person entered as User Requested By.")
             if second_recommender and requested_by_name in _user_name_candidates(second_recommender):
@@ -1214,8 +1218,19 @@ class CBSSignoffChainUpdateForm(forms.Form):
         empty_label="Select final approver",
     )
 
-    def __init__(self, *args, request_user=None, office_type="head_office", locked_fields=None, **kwargs):
+    def __init__(
+        self,
+        *args,
+        request_user=None,
+        office_type="head_office",
+        locked_fields=None,
+        access_user=None,
+        requested_by_name="",
+        **kwargs,
+    ):
         self._request_user = request_user
+        self._access_user = access_user
+        self._requested_by_name = _normalize_person_name(requested_by_name)
         self.office_type = (office_type or "head_office").strip()
         self.locked_fields = set(locked_fields or [])
         super().__init__(*args, **kwargs)
@@ -1260,6 +1275,22 @@ class CBSSignoffChainUpdateForm(forms.Form):
                 self.add_error("second_recommender", "Second recommended by cannot be the user who requested this CBS access.")
             if approver and approver.id == request_user.id:
                 self.add_error("approver", "Approved by cannot be the user who requested this CBS access.")
+        access_user = getattr(self, "_access_user", None)
+        if access_user is not None:
+            if recommender and recommender.id == access_user.id:
+                self.add_error("recommender", "Recommended by cannot be the user who needs access / acknowledgement signature.")
+            if second_recommender and second_recommender.id == access_user.id:
+                self.add_error("second_recommender", "Second recommended by cannot be the user who needs access / acknowledgement signature.")
+            if approver and approver.id == access_user.id:
+                self.add_error("approver", "Approved by cannot be the user who needs access / acknowledgement signature.")
+        requested_by_name = getattr(self, "_requested_by_name", "")
+        if requested_by_name:
+            if recommender and requested_by_name in _user_name_candidates(recommender):
+                self.add_error("recommender", "Recommended by cannot be the same person entered as User Requested By.")
+            if second_recommender and requested_by_name in _user_name_candidates(second_recommender):
+                self.add_error("second_recommender", "Second recommended by cannot be the same person entered as User Requested By.")
+            if approver and requested_by_name in _user_name_candidates(approver):
+                self.add_error("approver", "Approved by cannot be the same person entered as User Requested By.")
         return cleaned_data
 
 
@@ -1267,6 +1298,7 @@ class RemoteAccessApprovalDecisionForm(forms.Form):
     decision = forms.ChoiceField(
         choices=[
             (RemoteAccessApproval.STATUS_APPROVED, "Approve"),
+            (RemoteAccessApproval.STATUS_RETURNED, "Return"),
             (RemoteAccessApproval.STATUS_REJECTED, "Reject"),
         ],
         required=True,
@@ -1277,10 +1309,10 @@ class RemoteAccessApprovalDecisionForm(forms.Form):
             attrs={
                 "class": "form-control",
                 "rows": 3,
-                "placeholder": "Optional message to requester. For CBS access, include the CBS User ID if it has been created.",
+                "placeholder": "Optional message to requester. For CBS access, include the CBS User ID if it has been created or correction details if returned.",
             }
         ),
-        label="Message to Requester / CBS User ID (optional)",
+        label="Message to Requester / CBS User ID / Return Reason (optional)",
     )
 
     def clean_decision_note(self):

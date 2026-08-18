@@ -1,3 +1,4 @@
+import csv
 import base64
 import hashlib
 import hmac
@@ -85,6 +86,8 @@ from .forms import (
     TicketChatPrivacyForm,
     TicketForm,
     TicketUpdateForm,
+    _normalize_person_name,
+    _user_name_candidates,
 )
 from .notifications import build_chat_notification_payload, get_chat_notification_target_ids
 from .purge import _try_delete_minio_objects
@@ -622,6 +625,18 @@ def _build_assignment_email_body(request, ticket, assigned_by):
         and remote_access_approval.status == RemoteAccessApproval.STATUS_APPROVED
     ):
         approved_cbs_attachment_note = "\nApproved CBS access request document is attached with this email.\n"
+        return (
+            f"Dear {assignee_name},\n\n"
+            f"The ticket number {ticket.ticket_id} regarding CBS ACCESS has been approved.\n\n"
+            "Provide necessary access to the user in CBS and update the ticket status to resolved once done.\n\n"
+            f"Ticket ID: {ticket.ticket_id}\n"
+            f"Subject: {ticket.subject}\n"
+            f"Status: {ticket.get_status_display()}\n"
+            f"Requester: {_format_user_contact(ticket.created_by)}\n"
+            f"Assigned By: {_format_user_contact(assigned_by)}\n"
+            f"{approved_cbs_attachment_note}"
+            f"Open Ticket:\n{_ticket_detail_url(request, ticket)}\n"
+        )
     return (
         f"Dear {assignee_name},\n\n"
         f"I hope you are doing well.\n\n"
@@ -1117,7 +1132,7 @@ def _build_remote_access_decision_email_body(request, ticket, remote_access_appr
     decided_by = getattr(remote_access_approval, "decided_by", None) or getattr(remote_access_approval, "approver", None)
     decision_note = (remote_access_approval.decision_note or "").strip()
     decided_at = remote_access_approval.decided_at
-    if remote_access_approval.status == RemoteAccessApproval.STATUS_REJECTED and not remote_access_approval.decided_by_id:
+    if remote_access_approval.status in {RemoteAccessApproval.STATUS_RETURNED, RemoteAccessApproval.STATUS_REJECTED} and not remote_access_approval.decided_by_id:
         if remote_access_approval.second_recommended_by_id:
             decision_stage = "Second Recommendation"
             decided_by = getattr(remote_access_approval, "second_recommended_by", None) or getattr(remote_access_approval, "second_recommender", None)
@@ -1151,9 +1166,13 @@ def _build_remote_access_decision_email_body(request, ticket, remote_access_appr
             body += f"\nMessage / CBS User ID:\n{decision_note}\n"
         else:
             body += f"\nMessage:\n{decision_note}\n"
-    if request_kind == "CBS Access" and remote_access_approval.status == RemoteAccessApproval.STATUS_REJECTED:
+    if request_kind == "CBS Access" and remote_access_approval.status == RemoteAccessApproval.STATUS_RETURNED:
         body += (
             "\nYou can correct the CBS access request document from the ticket page and submit it again for approval.\n"
+        )
+    if request_kind == "CBS Access" and remote_access_approval.status == RemoteAccessApproval.STATUS_REJECTED:
+        body += (
+            "\nThis CBS access request was rejected. If access is still required, please create a new request.\n"
         )
     body += (
         f"\nOpen Request:\n{_ticket_detail_url(request, ticket)}\n\n"
@@ -1978,7 +1997,10 @@ def _can_cancel_cbs_access_request(user, ticket, remote_access_approval):
         and remote_access_approval is not None
         and getattr(ticket, "created_by_id", None) == getattr(user, "id", None)
         and getattr(ticket, "status", "") not in {"cancelled_duplicate", "resolved", "closed"}
-        and remote_access_approval.status != RemoteAccessApproval.STATUS_APPROVED
+        and remote_access_approval.status not in {
+            RemoteAccessApproval.STATUS_APPROVED,
+            RemoteAccessApproval.STATUS_REJECTED,
+        }
     )
 
 
@@ -2191,11 +2213,14 @@ def _build_ticket_detail_context(
         remote_access_approval,
     )
     if cbs_signoff_chain_form is None and can_manage_cbs_signoff_chain:
+        cbs_access_data = _cbs_access_data_from_ticket(ticket)
         cbs_signoff_chain_form = CBSSignoffChainUpdateForm(
             request_user=ticket.created_by,
             office_type=_cbs_access_office_type_from_request_type(ticket.request_type),
             initial=_cbs_signoff_chain_initial(remote_access_approval),
             locked_fields=_cbs_signoff_chain_locked_fields(remote_access_approval),
+            access_user=_cbs_access_acknowledgement_user(cbs_access_data),
+            requested_by_name=cbs_access_data.get("requested_by_name"),
         )
     can_assign_approved_cbs_access = _can_assign_approved_cbs_access(
         request.user,
@@ -2791,7 +2816,15 @@ def _build_cbs_access_request_description(cleaned_data):
         or timezone.localtime(timezone.now()).strftime("%m/%d/%Y")
     )
     post_approval_cc_users = cleaned_data.get("post_approval_cc_users") or []
-    post_approval_cc_emails = cleaned_data.get("post_approval_cc_emails") or []
+    raw_post_approval_cc_emails = cleaned_data.get("post_approval_cc_emails") or []
+    if isinstance(raw_post_approval_cc_emails, str):
+        post_approval_cc_emails = parse_email_list(raw_post_approval_cc_emails)
+    else:
+        post_approval_cc_emails = [
+            (email or "").strip()
+            for email in raw_post_approval_cc_emails
+            if (email or "").strip()
+        ]
     if post_approval_cc_users:
         post_approval_cc_emails = [
             (getattr(user, "email", "") or "").strip()
@@ -4102,7 +4135,10 @@ def _cbs_recommendation_signature_allowed(remote_access_approval):
     return bool(
         remote_access_approval
         and getattr(remote_access_approval, "recommended_by_id", None)
-        and remote_access_approval.status != RemoteAccessApproval.STATUS_REJECTED
+        and remote_access_approval.status not in {
+            RemoteAccessApproval.STATUS_RETURNED,
+            RemoteAccessApproval.STATUS_REJECTED,
+        }
     )
 
 
@@ -4110,7 +4146,10 @@ def _cbs_second_recommendation_signature_allowed(remote_access_approval):
     return bool(
         remote_access_approval
         and getattr(remote_access_approval, "second_recommended_by_id", None)
-        and remote_access_approval.status != RemoteAccessApproval.STATUS_REJECTED
+        and remote_access_approval.status not in {
+            RemoteAccessApproval.STATUS_RETURNED,
+            RemoteAccessApproval.STATUS_REJECTED,
+        }
     )
 
 
@@ -5089,7 +5128,10 @@ def _is_cbs_access_request_finalized(ticket, remote_access_approval):
     return bool(
         _approval_request_kind(ticket) == "CBS Access"
         and remote_access_approval is not None
-        and remote_access_approval.status == RemoteAccessApproval.STATUS_APPROVED
+        and remote_access_approval.status in {
+            RemoteAccessApproval.STATUS_APPROVED,
+            RemoteAccessApproval.STATUS_REJECTED,
+        }
     )
 
 
@@ -5382,8 +5424,14 @@ def cbs_access_concerned_user_update(request, ticket_id):
     if assignee is None:
         messages.error(request, "Select an active concerned user for this CBS access request.")
         return redirect("ticket_detail", ticket_id=ticket.id)
-    if assignee.id == request.user.id:
-        messages.error(request, "You cannot select yourself as the concerned user for this CBS access request.")
+    cbs_access_data = _cbs_access_data_from_ticket(ticket)
+    access_user = _cbs_access_acknowledgement_user(cbs_access_data)
+    if access_user is not None and assignee.id == getattr(access_user, "id", None):
+        messages.error(request, "Concerned user cannot be the same person this CBS access form is for.")
+        return redirect("ticket_detail", ticket_id=ticket.id)
+    requested_by_name = _normalize_person_name(cbs_access_data.get("requested_by_name"))
+    if requested_by_name and requested_by_name in _user_name_candidates(assignee):
+        messages.error(request, "Concerned user cannot be the same person entered as User Requested By.")
         return redirect("ticket_detail", ticket_id=ticket.id)
 
     is_approved = remote_access_approval.status == RemoteAccessApproval.STATUS_APPROVED
@@ -5680,6 +5728,9 @@ def cbs_access_request_correct(request, ticket_id):
     if ticket.created_by_id != request.user.id:
         messages.error(request, "Only the requester can edit and resubmit this CBS access request.")
         return redirect("ticket_detail", ticket_id=ticket.id)
+    if remote_access_approval.status == RemoteAccessApproval.STATUS_REJECTED:
+        messages.error(request, "This CBS access request was rejected. Please create a new request if access is still required.")
+        return redirect("ticket_detail", ticket_id=ticket.id)
     if _is_cbs_access_request_finalized(ticket, remote_access_approval):
         messages.error(request, "This CBS access request is finalized and is no longer editable.")
         return redirect("ticket_detail", ticket_id=ticket.id)
@@ -5897,12 +5948,15 @@ def cbs_access_signoff_chain_update(request, ticket_id):
         return redirect("ticket_detail", ticket_id=ticket.id)
 
     office_type = _cbs_access_office_type_from_request_type(ticket.request_type)
+    cbs_access_data = _cbs_access_data_from_ticket(ticket)
     form = CBSSignoffChainUpdateForm(
         request.POST,
         request_user=ticket.created_by,
         office_type=office_type,
         initial=_cbs_signoff_chain_initial(remote_access_approval),
         locked_fields=_cbs_signoff_chain_locked_fields(remote_access_approval),
+        access_user=_cbs_access_acknowledgement_user(cbs_access_data),
+        requested_by_name=cbs_access_data.get("requested_by_name"),
     )
     if not form.is_valid():
         messages.error(request, "Please correct the CBS sign-off chain.")
@@ -6039,6 +6093,9 @@ def remote_access_approval_update(request, ticket_id):
     decision = form.cleaned_data["decision"]
     decision_stage = remote_access_approval.current_stage
     request_kind = _approval_request_kind(ticket)
+    if decision == RemoteAccessApproval.STATUS_RETURNED and request_kind != "CBS Access":
+        messages.error(request, "Return is available only for CBS access requests.")
+        return redirect("ticket_detail", ticket_id=ticket.id)
     remote_access_approval.record_decision(
         decision,
         request.user,
@@ -9895,6 +9952,12 @@ def support_cbs_access_requests(request):
             "page_title": "CBS Access Requests",
             "page_description": "CBS request approval chain, approved documents, assignment, resolution, and closure.",
             "clear_url": reverse("support_cbs_access_requests"),
+            "export_url": (
+                f"{reverse('support_cbs_access_report_export')}?{request.GET.urlencode()}"
+                if request.GET.urlencode()
+                else reverse("support_cbs_access_report_export")
+            ),
+            "export_label": "Download CBS Access Report",
             "show_assigned_to_filter": True,
             "selected_department": filters["department"],
             "selected_branch": filters["branch"],
@@ -9913,6 +9976,89 @@ def support_cbs_access_requests(request):
             "has_active_filters": _has_active_support_filters(filters),
         },
     )
+
+
+@login_required
+@user_passes_test(_can_access_cbs_access_requests)
+def support_cbs_access_report_export(request):
+    filters = _get_support_filters(request)
+    tickets = _apply_support_filters(
+        Ticket.objects.select_related(
+            "created_by",
+            "assigned_to",
+            "remote_access_approval",
+            "remote_access_approval__post_approval_assigned_to",
+            "remote_access_approval__recommender",
+            "remote_access_approval__approver",
+            "remote_access_approval__decided_by",
+        )
+        .filter(request_type__in=("cbs_access_ho", "cbs_access_branch"))
+        .order_by("-created_at"),
+        filters,
+        include_approval_tickets=True,
+        include_special_requests=True,
+    )
+    filename = f"cbs-access-report-{timezone.localtime(timezone.now()).strftime('%Y%m%d-%H%M%S')}.csv"
+    response = HttpResponse(content_type="text/csv")
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    writer = csv.writer(response)
+    writer.writerow(
+        [
+            "Ticket ID",
+            "Status",
+            "Created At",
+            "Approved At",
+            "Completed At",
+            "Access User Name",
+            "Access User ID",
+            "Employee ID",
+            "Designation",
+            "Branch / Department",
+            "Type of User",
+            "Old User ID",
+            "CBS Access Provided",
+            "Requested By",
+            "Approved By",
+            "Concerned User",
+            "Resolution",
+        ]
+    )
+    for ticket in tickets:
+        data = _cbs_access_data_from_ticket(ticket)
+        group_labels = dict(_cbs_access_group_choices(ticket.request_type))
+        access_provided = "; ".join(
+            f"{code} - {group_labels.get(code, code)}"
+            for code in data.get("user_groups", [])
+        )
+        approval = getattr(ticket, "remote_access_approval", None)
+        approved_at = getattr(approval, "decided_at", None)
+        completed_at = getattr(ticket, "resolved_at", None) or getattr(ticket, "closed_at", None)
+        concerned_user = (
+            getattr(approval, "post_approval_assigned_to", None)
+            or getattr(ticket, "assigned_to", None)
+        )
+        writer.writerow(
+            [
+                ticket.ticket_id,
+                ticket.get_status_display(),
+                timezone.localtime(ticket.created_at).strftime("%Y-%m-%d %H:%M") if ticket.created_at else "",
+                timezone.localtime(approved_at).strftime("%Y-%m-%d %H:%M") if approved_at else "",
+                timezone.localtime(completed_at).strftime("%Y-%m-%d %H:%M") if completed_at else "",
+                data.get("access_user_signature_name") or data.get("name") or "",
+                data.get("access_user_id") or "",
+                data.get("employee_id") or "",
+                data.get("designation") or "",
+                data.get("department") or "",
+                "New User" if data.get("user_type") == "new" else "Amendment for Old User",
+                data.get("old_user_id") or "",
+                access_provided,
+                data.get("requested_signature_name") or data.get("requested_by_name") or "",
+                data.get("approved_by_name") or _cbs_description_user_value(getattr(approval, "decided_by", None), ""),
+                _cbs_description_user_value(concerned_user, ""),
+                getattr(ticket, "resolution_note", "") or "",
+            ]
+        )
+    return response
 
 
 @login_required

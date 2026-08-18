@@ -843,6 +843,14 @@
                         </span>
 
                         <div class="ms-auto d-flex align-items-center gap-2">
+                            <button
+                                type="button"
+                                class="btn btn-sm btn-outline-primary d-none"
+                                id="supportDeskNotificationButton"
+                            >
+                                Enable alerts
+                            </button>
+
                             {% if user.is_superuser %}
                                 <span class="badge-soft chip-danger d-none d-md-inline">Admin</span>
                             {% elif user.is_staff %}
@@ -1119,6 +1127,8 @@
 
             const container = document.getElementById("toast-container");
             if (!container || typeof WebSocket === "undefined") return;
+            const browserNotificationIcon = "{% static 'images/logo.png' %}";
+            const browserNotificationButton = document.getElementById("supportDeskNotificationButton");
 
             function headerClasses(level) {
                 if (level === "success") return "bg-success text-white";
@@ -1227,6 +1237,23 @@
                     }
 
                     bodyEl.appendChild(actionsEl);
+                } else if (data && data.kind === "browser_notification_permission") {
+                    const actionsEl = document.createElement("div");
+                    actionsEl.className = "d-flex flex-wrap gap-2 mt-2";
+
+                    const enableEl = document.createElement("button");
+                    enableEl.type = "button";
+                    enableEl.className = "btn btn-sm btn-primary";
+                    enableEl.textContent = "Enable";
+                    enableEl.addEventListener("click", function () {
+                        requestBrowserNotificationPermission().finally(function () {
+                            if (toastEl._localToast) {
+                                toastEl._localToast.hide();
+                            }
+                        });
+                    });
+                    actionsEl.appendChild(enableEl);
+                    bodyEl.appendChild(actionsEl);
                 } else if (url) {
                     const linkEl = document.createElement("a");
                     linkEl.href = url;
@@ -1244,23 +1271,103 @@
                 toastEl.addEventListener("hidden.bs.toast", () => toastEl.remove());
             }
 
+            function canUseBrowserNotifications() {
+                return "Notification" in window && typeof Notification.requestPermission === "function";
+            }
+
+            function requestBrowserNotificationPermission() {
+                if (!canUseBrowserNotifications() || Notification.permission !== "default") {
+                    return Promise.resolve(Notification.permission);
+                }
+                return Notification.requestPermission().then(function (permission) {
+                    updateBrowserNotificationButton();
+                    if (permission === "granted") {
+                        showBrowserNotificationTest();
+                    }
+                    return permission;
+                });
+            }
+
+            function showBrowserNotificationTest() {
+                if (!canUseBrowserNotifications() || Notification.permission !== "granted") return;
+                const notice = new Notification("PC alerts enabled", {
+                    body: "Chats and incoming calls will notify you when this helpdesk tab is in the background.",
+                    icon: browserNotificationIcon,
+                    tag: "supportdesk-alerts-enabled",
+                });
+                window.setTimeout(() => notice.close(), 6000);
+            }
+
+            function updateBrowserNotificationButton() {
+                if (!browserNotificationButton) return;
+                if (!canUseBrowserNotifications()) {
+                    browserNotificationButton.classList.add("d-none");
+                    return;
+                }
+                if (Notification.permission === "default") {
+                    browserNotificationButton.disabled = false;
+                    browserNotificationButton.textContent = "Enable alerts";
+                    browserNotificationButton.classList.remove("d-none", "btn-outline-danger");
+                    browserNotificationButton.classList.add("btn-outline-primary");
+                    return;
+                }
+                if (Notification.permission === "denied") {
+                    browserNotificationButton.disabled = true;
+                    browserNotificationButton.textContent = "Alerts blocked";
+                    browserNotificationButton.classList.remove("d-none", "btn-outline-primary");
+                    browserNotificationButton.classList.add("btn-outline-danger");
+                    return;
+                }
+                browserNotificationButton.classList.add("d-none");
+            }
+
+            function showBrowserNotificationPermissionPrompt() {
+                if (!canUseBrowserNotifications() || Notification.permission !== "default") return;
+                if (window.sessionStorage && sessionStorage.getItem("supportDeskNotificationPromptShown") === "1") return;
+                if (window.sessionStorage) {
+                    sessionStorage.setItem("supportDeskNotificationPromptShown", "1");
+                }
+                showToast({
+                    kind: "browser_notification_permission",
+                    title: "Enable PC alerts",
+                    message: "Allow browser notifications to receive chat and call alerts when this tab is not active.",
+                    level: "info",
+                    delay: 15000,
+                });
+            }
+
             function showBrowserNotification(data) {
-                if (!data || data.kind !== "incoming_call") return;
-                if (!("Notification" in window)) return;
-                if (document.visibilityState === "visible") return;
+                if (!data || (data.kind !== "incoming_call" && data.kind !== "chat_message")) return;
+                if (!canUseBrowserNotifications()) return;
+                if (document.visibilityState === "visible" && document.hasFocus()) return;
                 if (Notification.permission !== "granted") return;
 
-                const title = data.title ? String(data.title) : "Incoming audio call";
+                const title = data.title ? String(data.title) : (data.kind === "chat_message" ? "New chat message" : "Incoming audio call");
                 const message = data.message ? String(data.message) : "";
-                const delay = Number.isFinite(Number(data.delay)) ? Number(data.delay) : 20000;
+                const payloadDelay = Number.isFinite(Number(data.delay)) ? Number(data.delay) : 20000;
+                const delay = data.kind === "chat_message" ? Math.max(payloadDelay, 20000) : payloadDelay;
+                const notificationTag = [
+                    data.kind,
+                    data.ticket_id || "",
+                    data.message_id || "",
+                    Date.now(),
+                ].join("-");
                 const browserNotice = new Notification(title, {
                     body: message,
-                    tag: `incoming-call-${data.ticket_id || ""}`,
+                    icon: browserNotificationIcon,
+                    renotify: true,
+                    requireInteraction: true,
+                    tag: notificationTag,
+                    timestamp: Date.now(),
                 });
 
                 browserNotice.onclick = function () {
                     window.focus();
-                    answerIncomingCall(data);
+                    if (data.kind === "incoming_call") {
+                        answerIncomingCall(data);
+                    } else if (data.url) {
+                        window.location.href = String(data.url);
+                    }
                     browserNotice.close();
                 };
 
@@ -1284,6 +1391,11 @@
             }
 
             window.supportDeskShowToast = showToast;
+            if (browserNotificationButton) {
+                browserNotificationButton.addEventListener("click", requestBrowserNotificationPermission);
+            }
+            updateBrowserNotificationButton();
+            window.setTimeout(showBrowserNotificationPermissionPrompt, 1200);
 
             const protocol = window.location.protocol === "https:" ? "wss" : "ws";
             const wsUrl = `${protocol}://${window.location.host}/ws/notifications/`;

@@ -43,7 +43,11 @@ from .notifications import (
     get_call_notification_target_ids,
     get_chat_notification_target_ids,
 )
-from .views import _build_incident_response_template_docx, _build_ticket_incident_report_docx
+from .views import (
+    _build_cbs_access_request_description,
+    _build_incident_response_template_docx,
+    _build_ticket_incident_report_docx,
+)
 
 
 class _MockS3Body:
@@ -563,6 +567,51 @@ class TicketChatNotificationTests(TestCase):
             get_chat_notification_target_ids(self.ticket, self.assignee.id),
             [self.requester.id],
         )
+
+    def test_unassigned_chat_notification_targets_department_support_queue(self):
+        self.ticket.assigned_to = None
+        self.ticket.department = "IT"
+        self.ticket.branch = "Kathmandu"
+        self.ticket.save()
+        support_one = get_user_model().objects.create_user(
+            username="it_support_one",
+            password="testpass123",
+            department="IT",
+            branch="Kathmandu",
+            is_itsupport=True,
+        )
+        support_two = get_user_model().objects.create_user(
+            username="it_support_two",
+            password="testpass123",
+            department="IT",
+            branch="Kathmandu",
+            is_staff=True,
+        )
+        other_branch_support = get_user_model().objects.create_user(
+            username="it_support_other_branch",
+            password="testpass123",
+            department="IT",
+            branch="Pokhara",
+            is_itsupport=True,
+        )
+        regular_department_user = get_user_model().objects.create_user(
+            username="it_regular_user",
+            password="testpass123",
+            department="IT",
+            branch="Kathmandu",
+        )
+
+        requester_targets = get_chat_notification_target_ids(self.ticket, self.requester.id)
+        self.assertIn(support_one.id, requester_targets)
+        self.assertIn(support_two.id, requester_targets)
+        self.assertNotIn(other_branch_support.id, requester_targets)
+        self.assertNotIn(regular_department_user.id, requester_targets)
+        self.assertNotIn(self.requester.id, requester_targets)
+
+        support_targets = get_chat_notification_target_ids(self.ticket, support_one.id)
+        self.assertEqual(support_targets[0], self.requester.id)
+        self.assertIn(support_two.id, support_targets)
+        self.assertNotIn(support_one.id, support_targets)
 
     def test_chat_notification_payload_contains_ticket_link_and_preview(self):
         payload = build_chat_notification_payload(
@@ -2086,6 +2135,14 @@ class RemoteAccessRequestViewTests(TestCase):
             password="testpass123",
             branch="Pokhara",
         )
+        self.access_user = get_user_model().objects.create_user(
+            username="remote_access_access_user",
+            email="remote_access_access_user@bestfinance.com.np",
+            password="testpass123",
+            first_name="Concerned",
+            last_name="User",
+            branch="Kathmandu",
+        )
         self.central_operation_user = get_user_model().objects.create_user(
             username="central_operation",
             email="central_operation@bestfinance.com.np",
@@ -2120,6 +2177,7 @@ class RemoteAccessRequestViewTests(TestCase):
     def _ensure_cbs_signature_users(self):
         for user, name in (
             (self.user, "requester-signature.png"),
+            (self.access_user, "access-user-signature.png"),
             (self.recommender, "first-recommender-signature.png"),
             (self.second_recommender, "second-recommender-signature.png"),
             (self.approver, "approver-signature.png"),
@@ -2130,11 +2188,11 @@ class RemoteAccessRequestViewTests(TestCase):
     def _cbs_branch_payload(self, **overrides):
         payload = {
             "subject": "CBS Access Request",
-            "name": "Branch User",
+            "name": "Concerned User",
             "designation": "Officer",
             "department": "Kathmandu / Operations",
             "employee_id": "EMP-001",
-            "access_user": str(self.user.id),
+            "access_user": str(self.access_user.id),
             "user_type": "new",
             "old_user_id": "",
             "user_groups": ["A", "K"],
@@ -2160,6 +2218,34 @@ class RemoteAccessRequestViewTests(TestCase):
         }
         payload.update(overrides)
         return payload
+
+    def test_cbs_access_description_keeps_post_approval_cc_string_as_emails(self):
+        description = _build_cbs_access_request_description(
+            {
+                "request_type": "cbs_access_branch",
+                "name": "Concerned User",
+                "designation": "Officer",
+                "department": "Kathmandu / Operations",
+                "employee_id": "EMP-001",
+                "access_user": self.access_user,
+                "user_type": "new",
+                "user_groups": ["A"],
+                "recommender": self.recommender,
+                "second_recommender": self.second_recommender,
+                "approver": self.approver,
+                "post_approval_cc_emails": (
+                    "central_operation@bestfinance.com.np, "
+                    "remote_access_other@bestfinance.com.np"
+                ),
+            }
+        )
+
+        self.assertIn(
+            "After Approval CC Emails: central_operation@bestfinance.com.np, "
+            "remote_access_other@bestfinance.com.np",
+            description,
+        )
+        self.assertNotIn("c, e, n, t, r, a, l", description)
 
     def test_ticket_list_shows_remote_access_request_menu_link(self):
         response = self.client.get(reverse("ticket_list"))
@@ -2435,6 +2521,50 @@ class RemoteAccessRequestViewTests(TestCase):
         self.assertIn("name", form.errors)
         self.assertIn("Name must match the selected acknowledgement signature user", form.errors["name"][0])
 
+    def test_cbs_access_allows_submitter_as_access_user_when_requested_by_is_different(self):
+        self._ensure_cbs_signature_users()
+
+        form = CBSAccessRequestForm(
+            data=self._cbs_branch_payload(
+                access_user=str(self.user.id),
+                name="Branch User",
+                requested_by_name="Another Requester",
+            ),
+            request_user=self.user,
+            office_type="branch",
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_cbs_access_allows_requested_by_same_as_access_user_name(self):
+        self._ensure_cbs_signature_users()
+
+        form = CBSAccessRequestForm(
+            data=self._cbs_branch_payload(requested_by_name="Concerned User"),
+            request_user=self.user,
+            office_type="branch",
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_cbs_access_rejects_concerned_provider_same_as_access_user(self):
+        self._ensure_cbs_signature_users()
+
+        form = CBSAccessRequestForm(
+            data=self._cbs_branch_payload(post_approval_assigned_to=str(self.access_user.id)),
+            request_user=self.user,
+            office_type="branch",
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("post_approval_assigned_to", form.errors)
+
+    def test_cbs_access_form_keeps_submitter_available_as_access_user(self):
+        form = CBSAccessRequestForm(request_user=self.user, office_type="branch")
+
+        self.assertNotEqual(form.initial.get("access_user"), self.user.id)
+        self.assertTrue(form.fields["access_user"].queryset.filter(id=self.user.id).exists())
+
     def test_cbs_branch_access_request_supports_second_recommender_chain(self):
         self._ensure_cbs_signature_users()
         response = self.client.post(
@@ -2572,6 +2702,54 @@ class RemoteAccessRequestViewTests(TestCase):
         self.assertContains(reassign_response, "Change Concerned User (CBS Access Provider)")
         self.assertContains(reassign_response, self.other_user.username)
         self.assertTrue(any(message.to == [self.other_user.email] for message in mail.outbox))
+
+    def test_cbs_concerned_user_update_rejects_user_requested_by(self):
+        self._ensure_cbs_signature_users()
+        self.client.post(
+            reverse("cbs_access_branch_request"),
+            data=self._cbs_branch_payload(),
+        )
+        ticket = Ticket.objects.get(subject="CBS Access Request")
+        approval = RemoteAccessApproval.objects.get(ticket=ticket)
+        central_client = Client()
+        central_client.force_login(self.central_operation_user)
+
+        response = central_client.post(
+            reverse("cbs_access_concerned_user_update", args=[ticket.id]),
+            data={"cbs_assigned_to": str(self.user.id)},
+            follow=True,
+        )
+        approval.refresh_from_db()
+        ticket.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(approval.post_approval_assigned_to_id, self.other_user.id)
+        self.assertIsNone(ticket.assigned_to_id)
+        self.assertContains(response, "Concerned user cannot be the same person entered as User Requested By.")
+
+    def test_cbs_concerned_user_update_rejects_access_user(self):
+        self._ensure_cbs_signature_users()
+        self.client.post(
+            reverse("cbs_access_branch_request"),
+            data=self._cbs_branch_payload(),
+        )
+        ticket = Ticket.objects.get(subject="CBS Access Request")
+        approval = RemoteAccessApproval.objects.get(ticket=ticket)
+        central_client = Client()
+        central_client.force_login(self.central_operation_user)
+
+        response = central_client.post(
+            reverse("cbs_access_concerned_user_update", args=[ticket.id]),
+            data={"cbs_assigned_to": str(self.access_user.id)},
+            follow=True,
+        )
+        approval.refresh_from_db()
+        ticket.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(approval.post_approval_assigned_to_id, self.other_user.id)
+        self.assertIsNone(ticket.assigned_to_id)
+        self.assertContains(response, "Concerned user cannot be the same person this CBS access form is for.")
 
     def test_cbs_branch_without_second_recommender_uses_three_signoff_columns(self):
         from tickets.views import WORD_NS, _build_cbs_access_docx, _cbs_access_data_from_ticket
@@ -2870,6 +3048,95 @@ class RemoteAccessRequestViewTests(TestCase):
         self.assertIn("Employee ID: EMP-999", ticket.description)
         self.assertEqual(approval.status, RemoteAccessApproval.STATUS_PENDING_RECOMMENDATION)
 
+    def test_returned_cbs_access_request_can_be_edited_and_resubmitted(self):
+        self._ensure_cbs_signature_users()
+        self.client.post(
+            reverse("cbs_access_branch_request"),
+            data=self._cbs_branch_payload(),
+        )
+        ticket = Ticket.objects.get(subject="CBS Access Request")
+        approval = RemoteAccessApproval.objects.get(ticket=ticket)
+
+        recommender_client = Client()
+        recommender_client.force_login(self.recommender)
+        detail_response = recommender_client.get(reverse("ticket_detail", args=[ticket.id]))
+        return_response = recommender_client.post(
+            reverse("remote_access_approval_update", args=[ticket.id]),
+            data={
+                "decision": RemoteAccessApproval.STATUS_RETURNED,
+                "decision_note": "Please correct the employee ID.",
+            },
+            follow=True,
+        )
+        approval.refresh_from_db()
+
+        self.assertContains(detail_response, "Return CBS Access")
+        self.assertEqual(return_response.status_code, 200)
+        self.assertEqual(approval.status, RemoteAccessApproval.STATUS_RETURNED)
+        self.assertEqual(approval.recommended_by_id, self.recommender.id)
+        self.assertEqual(approval.recommendation_note, "Please correct the employee ID.")
+        self.assertContains(return_response, "Returned")
+        self.assertContains(return_response, "Edit &amp; Resubmit")
+
+        resubmit_response = self.client.post(
+            reverse("cbs_access_request_correct", args=[ticket.id]),
+            data=self._cbs_branch_payload(employee_id="EMP-RETURNED"),
+        )
+        ticket.refresh_from_db()
+        approval.refresh_from_db()
+
+        self.assertEqual(resubmit_response.status_code, 302)
+        self.assertEqual(resubmit_response.url, reverse("ticket_detail", args=[ticket.id]))
+        self.assertIn("Employee ID: EMP-RETURNED", ticket.description)
+        self.assertEqual(approval.status, RemoteAccessApproval.STATUS_PENDING_RECOMMENDATION)
+        self.assertIsNone(approval.recommended_by_id)
+        self.assertEqual(approval.recommendation_note, "")
+
+    def test_rejected_cbs_access_request_cannot_be_edited_or_resubmitted(self):
+        self._ensure_cbs_signature_users()
+        self.client.post(
+            reverse("cbs_access_branch_request"),
+            data=self._cbs_branch_payload(second_recommender=""),
+        )
+        ticket = Ticket.objects.get(subject="CBS Access Request")
+        approval = RemoteAccessApproval.objects.get(ticket=ticket)
+
+        recommender_client = Client()
+        recommender_client.force_login(self.recommender)
+        recommender_client.post(
+            reverse("remote_access_approval_update", args=[ticket.id]),
+            data={"decision": RemoteAccessApproval.STATUS_APPROVED},
+        )
+        approver_client = Client()
+        approver_client.force_login(self.approver)
+        reject_response = approver_client.post(
+            reverse("remote_access_approval_update", args=[ticket.id]),
+            data={
+                "decision": RemoteAccessApproval.STATUS_REJECTED,
+                "decision_note": "Access is not allowed.",
+            },
+            follow=True,
+        )
+        approval.refresh_from_db()
+
+        self.assertEqual(reject_response.status_code, 200)
+        self.assertEqual(approval.status, RemoteAccessApproval.STATUS_REJECTED)
+        self.assertContains(reject_response, "Rejected")
+        self.assertNotContains(reject_response, "Edit &amp; Resubmit")
+
+        correction_response = self.client.post(
+            reverse("cbs_access_request_correct", args=[ticket.id]),
+            data=self._cbs_branch_payload(employee_id="EMP-REJECTED"),
+            follow=True,
+        )
+        ticket.refresh_from_db()
+        approval.refresh_from_db()
+
+        self.assertEqual(correction_response.status_code, 200)
+        self.assertNotIn("Employee ID: EMP-REJECTED", ticket.description)
+        self.assertEqual(approval.status, RemoteAccessApproval.STATUS_REJECTED)
+        self.assertContains(correction_response, "Please create a new request")
+
     def test_central_operation_can_view_all_cbs_requests_and_update_unapproved_signoff_chain(self):
         self._ensure_cbs_signature_users()
         self.client.post(
@@ -2903,6 +3170,59 @@ class RemoteAccessRequestViewTests(TestCase):
         self.assertIsNone(approval.second_recommender_id)
         self.assertEqual(approval.approver_id, self.other_user.id)
         self.assertEqual(approval.status, RemoteAccessApproval.STATUS_PENDING_APPROVAL)
+
+    def test_cbs_signoff_chain_update_rejects_access_user_as_approver(self):
+        self._ensure_cbs_signature_users()
+        self.client.post(
+            reverse("cbs_access_branch_request"),
+            data=self._cbs_branch_payload(),
+        )
+        ticket = Ticket.objects.get(subject="CBS Access Request")
+        approval = RemoteAccessApproval.objects.get(ticket=ticket)
+        central_client = Client()
+        central_client.force_login(self.central_operation_user)
+
+        response = central_client.post(
+            reverse("cbs_access_signoff_chain_update", args=[ticket.id]),
+            data={
+                "recommender": "",
+                "second_recommender": "",
+                "approver": str(self.access_user.id),
+            },
+        )
+        approval.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(approval.approver_id, self.approver.id)
+        self.assertContains(response, "Approved by cannot be the user who needs access / acknowledgement signature.")
+
+    def test_cbs_signoff_chain_update_rejects_requested_by_as_recommender(self):
+        self._ensure_cbs_signature_users()
+        self.client.post(
+            reverse("cbs_access_branch_request"),
+            data=self._cbs_branch_payload(
+                requested_by_name=self.other_user.username,
+                post_approval_assigned_to=str(self.central_operation_user.id),
+            ),
+        )
+        ticket = Ticket.objects.get(subject="CBS Access Request")
+        approval = RemoteAccessApproval.objects.get(ticket=ticket)
+        central_client = Client()
+        central_client.force_login(self.central_operation_user)
+
+        response = central_client.post(
+            reverse("cbs_access_signoff_chain_update", args=[ticket.id]),
+            data={
+                "recommender": str(self.other_user.id),
+                "second_recommender": "",
+                "approver": str(self.approver.id),
+            },
+        )
+        approval.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(approval.recommender_id, self.recommender.id)
+        self.assertContains(response, "Recommended by cannot be the same person entered as User Requested By.")
 
     def test_cbs_signoff_chain_update_keeps_completed_first_recommender_signature(self):
         self._ensure_cbs_signature_users()

@@ -378,7 +378,7 @@
             </span>
             {% if approval_request_kind == "CBS Access" %}
                 <a href="{% url 'cbs_access_request_download' ticket.id %}?format=pdf" class="btn btn-sm btn-outline-secondary">Download PDF</a>
-                {% if remote_access_approval.status != 'approved' and ticket.created_by_id == user.id and ticket.status != 'cancelled_duplicate' %}
+                {% if remote_access_approval.status != 'approved' and remote_access_approval.status != 'rejected' and ticket.created_by_id == user.id and ticket.status != 'cancelled_duplicate' %}
                     <a href="{% url 'cbs_access_request_correct' ticket.id %}" class="btn btn-sm btn-primary">Edit &amp; Resubmit</a>
                 {% endif %}
             {% endif %}
@@ -722,9 +722,15 @@
             <div class="d-flex flex-wrap gap-2">
                 {% if remote_access_approval.current_stage == 'recommendation' or remote_access_approval.current_stage == 'second_recommendation' %}
                 <button type="submit" name="decision" value="approved" class="btn btn-success">Recommend {{ approval_request_kind }}</button>
+                {% if approval_request_kind == "CBS Access" %}
+                <button type="submit" name="decision" value="returned" class="btn btn-sm btn-outline-primary">Return {{ approval_request_kind }}</button>
+                {% endif %}
                 <button type="submit" name="decision" value="rejected" class="btn btn-outline-danger">Reject {{ approval_request_kind }}</button>
                 {% else %}
                 <button type="submit" name="decision" value="approved" class="btn btn-success">Approve {{ approval_request_kind }}</button>
+                {% if approval_request_kind == "CBS Access" %}
+                <button type="submit" name="decision" value="returned" class="btn btn-sm btn-outline-primary">Return {{ approval_request_kind }}</button>
+                {% endif %}
                 <button type="submit" name="decision" value="rejected" class="btn btn-outline-danger">Reject {{ approval_request_kind }}</button>
                 {% endif %}
             </div>
@@ -1364,6 +1370,7 @@
         let lastPeerSender = null;
         let activeCallPeerUserId = Number(searchParams.get("callpeer") || searchParams.get("calltarget") || "0") || null;
         let pendingOffer = null;
+        let pendingIceCandidates = [];
         let preferredCallerSender = null;
         let ignoreIncomingUntil = 0;
         let ignoreIncomingSender = null;
@@ -1441,6 +1448,28 @@
             }
         }
 
+        async function addIceCandidate(candidate) {
+            if (!pc || !candidate) return;
+            if (!pc.remoteDescription) {
+                pendingIceCandidates.push(candidate);
+                return;
+            }
+            try {
+                await pc.addIceCandidate(candidate);
+            } catch (e) {
+                // Ignore candidates that arrive during renegotiation or after hangup.
+            }
+        }
+
+        async function setRemoteDescriptionAndFlushIce(conn, description) {
+            await conn.setRemoteDescription(description);
+            const candidates = pendingIceCandidates;
+            pendingIceCandidates = [];
+            for (const candidate of candidates) {
+                await addIceCandidate(candidate);
+            }
+        }
+
         async function startCall() {
             if (chatLocked || callStart.disabled) return;
             if (!window.isSecureContext) {
@@ -1484,7 +1513,7 @@
                 if (pendingOffer) {
                     const offer = pendingOffer;
                     pendingOffer = null;
-                    await conn.setRemoteDescription(offer);
+                    await setRemoteDescriptionAndFlushIce(conn, offer);
                     const answer = await conn.createAnswer();
                     await conn.setLocalDescription(answer);
                     negotiated = true;
@@ -1517,6 +1546,7 @@
             lastPeerSender = null;
             activeCallPeerUserId = null;
             pendingOffer = null;
+            pendingIceCandidates = [];
             preferredCallerSender = null;
             setCallStatus("idle");
             setIncomingState(false);
@@ -1608,7 +1638,7 @@
             return true;
         }
 
-        window.supportDeskAnswerTicketCall = function (requestedTicketId) {
+        window.supportDeskAnswerTicketCall = function (requestedTicketId, data) {
             if (String(requestedTicketId || "") !== String(ticketId)) {
                 return false;
             }
@@ -1721,7 +1751,7 @@
                 }
                 setIncomingState(false);
                 const conn = ensurePeerConnection();
-                await conn.setRemoteDescription(data.sdp);
+                await setRemoteDescriptionAndFlushIce(conn, data.sdp);
                 const answer = await conn.createAnswer();
                 await conn.setLocalDescription(answer);
                 negotiated = true;
@@ -1732,17 +1762,13 @@
             if (ev === "answer") {
                 if (!pc) return;
                 setIncomingState(false);
-                await pc.setRemoteDescription(data.sdp);
+                await setRemoteDescriptionAndFlushIce(pc, data.sdp);
                 setCallStatus("connecting...");
                 return;
             }
             if (ev === "ice") {
                 if (!pc) return;
-                try {
-                    await pc.addIceCandidate(data.candidate);
-                } catch (e) {
-                    // Ignore (can happen during renegotiation / timing)
-                }
+                await addIceCandidate(data.candidate);
             }
         };
 

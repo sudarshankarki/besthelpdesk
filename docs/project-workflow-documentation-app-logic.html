@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>BESTSUPPORT Project Workflow Documentation - App Logic</title>
+  <style>
+    @page { margin: 18mm 16mm; }
+    body {
+      color: #1f2933;
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 12px;
+      line-height: 1.45;
+      margin: 0;
+    }
+    h1, h2, h3 {
+      color: #102a43;
+      line-height: 1.2;
+      margin: 0 0 8px;
+    }
+    h1 {
+      border-bottom: 2px solid #486581;
+      font-size: 25px;
+      padding-bottom: 10px;
+    }
+    h2 {
+      border-bottom: 1px solid #bcccdc;
+      font-size: 17px;
+      margin-top: 22px;
+      padding-bottom: 5px;
+    }
+    h3 {
+      font-size: 14px;
+      margin-top: 15px;
+    }
+    p { margin: 0 0 9px; }
+    ul, ol { margin: 6px 0 12px 18px; padding: 0; }
+    li { margin: 3px 0; }
+    code {
+      background: #f0f4f8;
+      border-radius: 3px;
+      color: #243b53;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 11px;
+      padding: 1px 4px;
+    }
+    table {
+      border-collapse: collapse;
+      margin: 10px 0 16px;
+      width: 100%;
+    }
+    th, td {
+      border: 1px solid #d9e2ec;
+      padding: 6px 7px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: #e6eef6;
+      color: #102a43;
+      font-weight: 700;
+    }
+    .meta {
+      color: #52606d;
+      font-size: 11px;
+      margin: 8px 0 18px;
+    }
+    .note {
+      background: #f5f7fa;
+      border-left: 4px solid #627d98;
+      margin: 12px 0;
+      padding: 8px 10px;
+    }
+    .diagram {
+      border: 1px solid #d9e2ec;
+      margin: 10px 0 16px;
+      padding: 8px;
+      page-break-inside: avoid;
+    }
+    .diagram svg {
+      height: auto;
+      max-width: 100%;
+      width: 100%;
+    }
+    .box { fill: #f8fafc; stroke: #486581; stroke-width: 1.2; }
+    .box-accent { fill: #edf5f1; stroke: #2f855a; stroke-width: 1.2; }
+    .box-warn { fill: #fff7ed; stroke: #b7791f; stroke-width: 1.2; }
+    .text { fill: #102a43; font-family: Arial, Helvetica, sans-serif; font-size: 12px; }
+    .small { fill: #52606d; font-family: Arial, Helvetica, sans-serif; font-size: 10px; }
+    .line { stroke: #627d98; stroke-width: 1.4; marker-end: url(#arrow); }
+    .footer {
+      border-top: 1px solid #d9e2ec;
+      color: #627d98;
+      font-size: 10px;
+      margin-top: 24px;
+      padding-top: 8px;
+    }
+  </style>
+</head>
+<body>
+  <h1>BESTSUPPORT Project Workflow Documentation</h1>
+  <p class="meta">Scope: application logic only. Updated: June 1, 2026.</p>
+
+  <h2>1. Purpose and Scope</h2>
+  <p>
+    This document provides the BESTSUPPORT application logic, including request creation,
+    approvals, assignments, ticket updates, incident reporting, notifications, document generation,
+    and reporting.
+  </p>
+
+  <h2>2. High-Level Application Map</h2>
+  <div class="diagram">
+    <svg viewBox="0 0 900 360" role="img" aria-label="High-level app logic diagram">
+      <defs>
+        <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L9,3 z" fill="#627d98"></path>
+        </marker>
+      </defs>
+      <rect class="box-accent" x="30" y="35" width="150" height="56" rx="6"></rect>
+      <text class="text" x="105" y="59" text-anchor="middle">User Browser</text>
+      <text class="small" x="105" y="76" text-anchor="middle">forms, pages, chat</text>
+
+      <rect class="box" x="250" y="25" width="165" height="76" rx="6"></rect>
+      <text class="text" x="332" y="52" text-anchor="middle">URL Routing</text>
+      <text class="small" x="332" y="70" text-anchor="middle">accounts.urls</text>
+      <text class="small" x="332" y="85" text-anchor="middle">tickets.urls</text>
+
+      <rect class="box" x="485" y="25" width="170" height="76" rx="6"></rect>
+      <text class="text" x="570" y="52" text-anchor="middle">Views and Forms</text>
+      <text class="small" x="570" y="70" text-anchor="middle">validation</text>
+      <text class="small" x="570" y="85" text-anchor="middle">permission checks</text>
+
+      <rect class="box" x="720" y="35" width="150" height="56" rx="6"></rect>
+      <text class="text" x="795" y="59" text-anchor="middle">Models</text>
+      <text class="small" x="795" y="76" text-anchor="middle">tickets, users, reports</text>
+
+      <rect class="box-warn" x="250" y="170" width="165" height="62" rx="6"></rect>
+      <text class="text" x="332" y="196" text-anchor="middle">Templates</text>
+      <text class="small" x="332" y="213" text-anchor="middle">HTML response</text>
+
+      <rect class="box" x="485" y="155" width="170" height="92" rx="6"></rect>
+      <text class="text" x="570" y="184" text-anchor="middle">Side Effects</text>
+      <text class="small" x="570" y="202" text-anchor="middle">email</text>
+      <text class="small" x="570" y="217" text-anchor="middle">notifications</text>
+      <text class="small" x="570" y="232" text-anchor="middle">documents</text>
+
+      <rect class="box" x="720" y="170" width="150" height="62" rx="6"></rect>
+      <text class="text" x="795" y="196" text-anchor="middle">Realtime</text>
+      <text class="small" x="795" y="213" text-anchor="middle">chat, calls, alerts</text>
+
+      <line class="line" x1="180" y1="63" x2="250" y2="63"></line>
+      <line class="line" x1="415" y1="63" x2="485" y2="63"></line>
+      <line class="line" x1="655" y1="63" x2="720" y2="63"></line>
+      <line class="line" x1="570" y1="101" x2="570" y2="155"></line>
+      <line class="line" x1="485" y1="200" x2="415" y2="200"></line>
+      <line class="line" x1="250" y1="200" x2="105" y2="91"></line>
+      <line class="line" x1="655" y1="201" x2="720" y2="201"></line>
+    </svg>
+  </div>
+
+  <h2>3. Main Application Areas</h2>
+  <table>
+    <thead>
+      <tr><th>Area</th><th>Main Components</th><th>App Responsibility</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Accounts</td><td><code>accounts.models</code>, <code>accounts.forms</code>, <code>accounts.views</code></td><td>Users, authentication, branches, departments, support roles, Central Operation role, signatures, and session tracking.</td></tr>
+      <tr><td>Ticket intake</td><td><code>create_ticket</code>, <code>TicketForm</code>, <code>create_ticket.html</code></td><td>New Request chooser, General Support form, incident intake fields, assignment, notify email, CC email suggestions, attachments, priority calculation.</td></tr>
+      <tr><td>CBS access</td><td><code>CBSAccessRequestForm</code>, CBS views, CBS templates</td><td>Head Office and Branch CBS requests, user groups, endorsement, digital sign-off, approved document generation, after-approval assignment, Central Operation report export.</td></tr>
+      <tr><td>Remote access</td><td><code>RemoteAccessApproval</code>, remote access views</td><td>Remote access approval tickets with recommender/approver workflow and approval notifications.</td></tr>
+      <tr><td>Incident reports</td><td><code>IncidentReport</code>, <code>IncidentReportSignoff</code>, incident report views</td><td>Formal incident report drafting, evidence, registered user signature, notified sign-off chain, correction, submit/send, and resolution gating.</td></tr>
+      <tr><td>Support queues</td><td>support dashboard and queue views</td><td>Filtered support worklists for department tickets, CBS requests, incidents, and general queue ownership.</td></tr>
+      <tr><td>Collaboration</td><td><code>TicketMessage</code>, attachments, consumers</td><td>Ticket chat, message attachments, read state, audio call signaling, and browser notifications.</td></tr>
+      <tr><td>Documents</td><td>technical document views and document generators</td><td>Technical document visibility/downloads plus CBS and incident PDF/DOC generation.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>4. Core Data Model Logic</h2>
+  <table>
+    <thead>
+      <tr><th>Model</th><th>Purpose</th><th>Important Logic</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>CustomUser</code></td><td>Application user profile.</td><td>Holds department, branch, support role, Central Operation flag, phone, position, and uploaded signature used by CBS and incident sign-offs.</td></tr>
+      <tr><td><code>Ticket</code></td><td>Main work item.</td><td>Generates ticket code, calculates priority from impact/urgency, normalizes CC emails, tracks status, assignment, resolution, closure, and request type.</td></tr>
+      <tr><td><code>RemoteAccessApproval</code></td><td>Approval chain linked to a ticket.</td><td>Stores recommender, second recommender, approver, status, notes, acted-by users, signature snapshots, and CBS post-approval assignee.</td></tr>
+      <tr><td><code>IncidentReport</code></td><td>Formal incident report linked to an incident ticket.</td><td>Stores report fields, submit/correction state, registered user, notified user metadata, signatures, evidence summary, and final locking.</td></tr>
+      <tr><td><code>IncidentReportSignoff</code></td><td>Ordered incident sign-off rows.</td><td>Controls notified review/acknowledgement levels and prevents duplicate user/level combinations.</td></tr>
+      <tr><td><code>TicketAssignmentLog</code></td><td>Assignment history.</td><td>Records who assigned work, when ownership started, and when assignment ended for workload/reporting logic.</td></tr>
+      <tr><td><code>TicketMessage</code> and <code>TicketMessageAttachment</code></td><td>Ticket chat and files.</td><td>Stores conversation messages and uploaded chat files with access controlled by ticket membership rules.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>5. New Request and Service Ticket Workflow</h2>
+  <div class="diagram">
+    <svg viewBox="0 0 900 260" role="img" aria-label="New request and service ticket workflow">
+      <defs>
+        <marker id="arrow2" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L9,3 z" fill="#627d98"></path>
+        </marker>
+      </defs>
+      <style>.line2{stroke:#627d98;stroke-width:1.4;marker-end:url(#arrow2)}</style>
+      <rect class="box-accent" x="25" y="95" width="120" height="52" rx="6"></rect>
+      <text class="text" x="85" y="117" text-anchor="middle">New Ticket</text>
+      <text class="small" x="85" y="134" text-anchor="middle">New Request</text>
+      <rect class="box" x="200" y="35" width="135" height="52" rx="6"></rect>
+      <text class="text" x="268" y="58" text-anchor="middle">General Support</text>
+      <text class="small" x="268" y="75" text-anchor="middle">standard form</text>
+      <rect class="box" x="200" y="105" width="135" height="52" rx="6"></rect>
+      <text class="text" x="268" y="128" text-anchor="middle">CBS Access</text>
+      <text class="small" x="268" y="145" text-anchor="middle">dedicated form</text>
+      <rect class="box" x="200" y="175" width="135" height="52" rx="6"></rect>
+      <text class="text" x="268" y="198" text-anchor="middle">Incident / Remote</text>
+      <text class="small" x="268" y="215" text-anchor="middle">special form</text>
+      <rect class="box-accent" x="410" y="35" width="150" height="52" rx="6"></rect>
+      <text class="text" x="485" y="58" text-anchor="middle">Validate Form</text>
+      <text class="small" x="485" y="75" text-anchor="middle">department, branch, email</text>
+      <rect class="box" x="635" y="35" width="135" height="52" rx="6"></rect>
+      <text class="text" x="702" y="58" text-anchor="middle">Create Ticket</text>
+      <text class="small" x="702" y="75" text-anchor="middle">ID, priority, files</text>
+      <rect class="box-warn" x="635" y="140" width="135" height="52" rx="6"></rect>
+      <text class="text" x="702" y="163" text-anchor="middle">Notify</text>
+      <text class="small" x="702" y="180" text-anchor="middle">email + in-app</text>
+      <line class="line2" x1="145" y1="121" x2="200" y2="61"></line>
+      <line class="line2" x1="335" y1="61" x2="410" y2="61"></line>
+      <line class="line2" x1="560" y1="61" x2="635" y2="61"></line>
+      <line class="line2" x1="702" y1="87" x2="702" y2="140"></line>
+      <line class="line2" x1="145" y1="121" x2="200" y2="131"></line>
+      <line class="line2" x1="145" y1="121" x2="200" y2="201"></line>
+    </svg>
+  </div>
+  <ol>
+    <li>User opens <code>New Ticket</code> and sees the <code>New Request</code> chooser.</li>
+    <li><code>General Support</code> keeps the user on the standard ticket form, defaulting to <code>Service Request</code>.</li>
+    <li>The form validates department, branch, assignment email, notify email, CC emails, impact, urgency, and attachments.</li>
+    <li>On submit, a <code>Ticket</code> is created with a generated ticket ID and calculated priority.</li>
+    <li>Assignment and notification emails are sent based on assign/notify/CC fields.</li>
+    <li>Assigned users, department users, requester, and support users see the ticket according to permission rules.</li>
+  </ol>
+
+  <h2>6. Ticket Status and Ownership Logic</h2>
+  <table>
+    <thead>
+      <tr><th>Status</th><th>Meaning</th><th>Typical Actor</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>New</code></td><td>Ticket has been created and is waiting for support acknowledgement.</td><td>Requester / system</td></tr>
+      <tr><td><code>Acknowledged</code></td><td>Support has seen or accepted the request.</td><td>Support</td></tr>
+      <tr><td><code>In Progress</code></td><td>Work is actively being handled.</td><td>Assigned user / department</td></tr>
+      <tr><td><code>Waiting on User</code></td><td>Support needs more input from requester or affected user.</td><td>Support</td></tr>
+      <tr><td><code>Waiting on Third Party</code></td><td>Work depends on vendor or external team.</td><td>Support</td></tr>
+      <tr><td><code>Resolved</code></td><td>Support has completed work and entered a resolution.</td><td>Support / assignee</td></tr>
+      <tr><td><code>Closed</code></td><td>Ticket is fully closed.</td><td>Requester / support / close token</td></tr>
+      <tr><td><code>Cancelled / Duplicate</code></td><td>Ticket should not continue as a separate request.</td><td>Support</td></tr>
+    </tbody>
+  </table>
+  <p>
+    Assignment is tracked on the ticket and in assignment logs. Department-only tickets can be claimed by
+    eligible department users. CBS tickets use the concerned CBS access provider label for the assignee
+    once the request reaches the post-approval stage.
+  </p>
+
+  <h2>7. CBS Access Request Workflow</h2>
+  <div class="diagram">
+    <svg viewBox="0 0 900 330" role="img" aria-label="CBS access workflow diagram">
+      <defs>
+        <marker id="arrow3" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L9,3 z" fill="#627d98"></path>
+        </marker>
+      </defs>
+      <style>.line3{stroke:#627d98;stroke-width:1.4;marker-end:url(#arrow3)}</style>
+      <rect class="box-accent" x="25" y="130" width="130" height="55" rx="6"></rect>
+      <text class="text" x="90" y="154" text-anchor="middle">CBS Access</text>
+      <text class="small" x="90" y="171" text-anchor="middle">Head Office / Branch</text>
+      <rect class="box" x="205" y="130" width="140" height="55" rx="6"></rect>
+      <text class="text" x="275" y="154" text-anchor="middle">CBS Form</text>
+      <text class="small" x="275" y="171" text-anchor="middle">groups, signatures</text>
+      <rect class="box" x="395" y="35" width="150" height="55" rx="6"></rect>
+      <text class="text" x="470" y="59" text-anchor="middle">Recommender</text>
+      <text class="small" x="470" y="76" text-anchor="middle">optional HO</text>
+      <rect class="box" x="395" y="130" width="150" height="55" rx="6"></rect>
+      <text class="text" x="470" y="154" text-anchor="middle">Second Recommender</text>
+      <text class="small" x="470" y="171" text-anchor="middle">Branch only</text>
+      <rect class="box" x="395" y="225" width="150" height="55" rx="6"></rect>
+      <text class="text" x="470" y="249" text-anchor="middle">Approver</text>
+      <text class="small" x="470" y="266" text-anchor="middle">final decision</text>
+      <rect class="box-accent" x="615" y="130" width="145" height="55" rx="6"></rect>
+      <text class="text" x="688" y="154" text-anchor="middle">Approved</text>
+      <text class="small" x="688" y="171" text-anchor="middle">document generated</text>
+      <rect class="box-warn" x="615" y="225" width="145" height="55" rx="6"></rect>
+      <text class="text" x="688" y="249" text-anchor="middle">Rejected</text>
+      <text class="small" x="688" y="266" text-anchor="middle">edit & resubmit</text>
+      <rect class="box" x="800" y="130" width="80" height="55" rx="6"></rect>
+      <text class="text" x="840" y="154" text-anchor="middle">Assign</text>
+      <text class="small" x="840" y="171" text-anchor="middle">provider</text>
+      <line class="line3" x1="155" y1="157" x2="205" y2="157"></line>
+      <line class="line3" x1="345" y1="157" x2="395" y2="62"></line>
+      <line class="line3" x1="470" y1="90" x2="470" y2="130"></line>
+      <line class="line3" x1="470" y1="185" x2="470" y2="225"></line>
+      <line class="line3" x1="545" y1="252" x2="615" y2="157"></line>
+      <line class="line3" x1="545" y1="252" x2="615" y2="252"></line>
+      <line class="line3" x1="760" y1="157" x2="800" y2="157"></line>
+    </svg>
+  </div>
+  <ol>
+    <li>User chooses <code>CBS Access</code>, then <code>Head Office</code> or <code>Branch</code>.</li>
+    <li>The CBS form records user information, access-user acknowledgement, type of user, old user ID, user groups, amendment reason, endorsement, after-approval assignee, CC users, and digital sign-off chain.</li>
+    <li>The system creates a CBS ticket and linked <code>RemoteAccessApproval</code> record with CBS-specific request type.</li>
+    <li>The first pending reviewer receives an email and in-app notification.</li>
+    <li>For branch requests, the second recommender is used only when selected.</li>
+    <li>Final approver can approve or reject. Rejected requests can be corrected and resubmitted by the requester before finalization.</li>
+    <li>On approval, signature snapshots and request data generate the approved CBS document.</li>
+    <li>The ticket is assigned to the selected concerned CBS access provider and copied to after-approval CC users.</li>
+    <li>Central Operation can download the CBS Access Report CSV from the CBS Access Requests page.</li>
+  </ol>
+
+  <h2>8. Remote Access Approval Workflow</h2>
+  <ol>
+    <li>User opens the remote access request form from <code>New Request</code>.</li>
+    <li>The form captures request details, recommender if selected, and final approver.</li>
+    <li>A ticket and <code>RemoteAccessApproval</code> chain are created.</li>
+    <li>Reviewer actions move the request from pending recommendation to pending approval or directly to final decision.</li>
+    <li>Approval or rejection is saved with actor, note, timestamp, notification, and visible ticket state.</li>
+  </ol>
+
+  <h2>9. Incident Ticket and Incident Report Workflow</h2>
+  <div class="diagram">
+    <svg viewBox="0 0 900 280" role="img" aria-label="Incident report workflow diagram">
+      <defs>
+        <marker id="arrow4" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L9,3 z" fill="#627d98"></path>
+        </marker>
+      </defs>
+      <style>.line4{stroke:#627d98;stroke-width:1.4;marker-end:url(#arrow4)}</style>
+      <rect class="box-accent" x="30" y="110" width="125" height="55" rx="6"></rect>
+      <text class="text" x="92" y="134" text-anchor="middle">Incident Ticket</text>
+      <text class="small" x="92" y="151" text-anchor="middle">intake details</text>
+      <rect class="box" x="215" y="110" width="125" height="55" rx="6"></rect>
+      <text class="text" x="278" y="134" text-anchor="middle">Draft Report</text>
+      <text class="small" x="278" y="151" text-anchor="middle">evidence + fields</text>
+      <rect class="box" x="400" y="110" width="125" height="55" rx="6"></rect>
+      <text class="text" x="462" y="134" text-anchor="middle">Registered Sign</text>
+      <text class="small" x="462" y="151" text-anchor="middle">profile signature</text>
+      <rect class="box" x="585" y="110" width="125" height="55" rx="6"></rect>
+      <text class="text" x="648" y="134" text-anchor="middle">Notified Signers</text>
+      <text class="small" x="648" y="151" text-anchor="middle">ordered levels</text>
+      <rect class="box-accent" x="770" y="65" width="105" height="55" rx="6"></rect>
+      <text class="text" x="822" y="89" text-anchor="middle">Submit</text>
+      <text class="small" x="822" y="106" text-anchor="middle">send & lock</text>
+      <rect class="box-warn" x="770" y="170" width="105" height="55" rx="6"></rect>
+      <text class="text" x="822" y="194" text-anchor="middle">Correction</text>
+      <text class="small" x="822" y="211" text-anchor="middle">reopen levels</text>
+      <line class="line4" x1="155" y1="137" x2="215" y2="137"></line>
+      <line class="line4" x1="340" y1="137" x2="400" y2="137"></line>
+      <line class="line4" x1="525" y1="137" x2="585" y2="137"></line>
+      <line class="line4" x1="710" y1="137" x2="770" y2="92"></line>
+      <line class="line4" x1="710" y1="137" x2="770" y2="197"></line>
+      <line class="line4" x1="770" y1="197" x2="340" y2="165"></line>
+    </svg>
+  </div>
+  <ol>
+    <li>Incident ticket intake captures incident-specific data and identifies the owner/commander.</li>
+    <li>Incident report page creates or edits a structured <code>IncidentReport</code>.</li>
+    <li>Evidence attachments are linked to the incident report and shown to permitted users.</li>
+    <li>Registered user signs the registered section from their uploaded profile signature.</li>
+    <li>Notified signers sign in configured order; earlier levels are reviewers and the final level is acknowledgement.</li>
+    <li>If a signer requests correction, later signatures are cleared and the report becomes editable again.</li>
+    <li>When all required signatures are complete, submit sends the report, locks editing, and marks the linked ticket resolved.</li>
+  </ol>
+
+  <h2>10. Permissions and Visibility</h2>
+  <table>
+    <thead>
+      <tr><th>Role / Participant</th><th>Visibility and Actions</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Requester</td><td>Can view own tickets, chat when permitted, edit/resubmit rejected CBS requests, and receive resolution/closure notifications.</td></tr>
+      <tr><td>Assigned user</td><td>Can manage work assigned to them, update status, resolve tickets, and participate in chat.</td></tr>
+      <tr><td>Department member</td><td>Can see department queue tickets for matching department/branch and claim eligible work.</td></tr>
+      <tr><td>IT support / staff / superuser</td><td>Can access support queues, update tickets, manage assignments, and access broader ticket operations.</td></tr>
+      <tr><td>Central Operation</td><td>Can access CBS Access Requests, adjust allowed CBS chain/provider details, participate in CBS visibility, and download CBS Access Report CSV.</td></tr>
+      <tr><td>CBS sign-off users</td><td>Can access assigned CBS approval steps and retain historical access when they have acted.</td></tr>
+      <tr><td>Incident signers</td><td>Can view/sign assigned incident report sign-off levels and request correction when needed.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>11. Notifications, Email, and Documents</h2>
+  <ul>
+    <li>New ticket email goes to notify email or default support mailbox, with CC emails when provided.</li>
+    <li>Assignment email goes to a specific assigned user when set.</li>
+    <li>CBS approval flow emails the next reviewer, then requester, then concerned CBS access provider after final approval.</li>
+    <li>After-approval CBS CC users are copied on the approved assignment email and appear as normal comma-separated addresses in the generated document.</li>
+    <li>Incident report submit sends the signed report to configured recipients and CC recipients.</li>
+    <li>Documents can be generated for CBS access requests and incident reports as PDF/DOC where the workflow allows.</li>
+  </ul>
+
+  <h2>12. Chat, Attachments, and Realtime Logic</h2>
+  <ul>
+    <li>Ticket chat access is calculated from requester, assignee, department membership, support roles, CBS approval participants, incident participants, and historical signers where applicable.</li>
+    <li>Chat can be locked by ticket state or privacy rules.</li>
+    <li>Message attachments are stored as ticket-linked attachment records and exposed only to users with ticket access.</li>
+    <li>Realtime consumers broadcast chat updates, notification changes, read state, and audio-call signaling to eligible users.</li>
+  </ul>
+
+  <h2>13. Reporting and Queues</h2>
+  <table>
+    <thead>
+      <tr><th>View</th><th>Purpose</th><th>Filters / Output</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Support Dashboard</td><td>Summary of support workload and shortcuts.</td><td>Links to queue, department, CBS, incidents.</td></tr>
+      <tr><td>Support Queue</td><td>General support worklist.</td><td>Ticket ID, department, branch, assignee, status, priority, date filters.</td></tr>
+      <tr><td>CBS Access Requests</td><td>CBS-specific queue for support and Central Operation.</td><td>Same support filters plus CBS-specific ticket metadata and report download.</td></tr>
+      <tr><td>CBS Access Report CSV</td><td>Later record of who received which CBS access.</td><td>Ticket ID, status, dates, access user, employee ID, old CBS ID, user groups, requested/approved/concerned users, resolution.</td></tr>
+      <tr><td>Incident Tickets</td><td>Incident-specific queue.</td><td>Incident ticket status and linked incident report actions.</td></tr>
+      <tr><td>Technical Documents</td><td>Document library visible by branch/department/role rules.</td><td>View/download allowed documents.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>14. Primary URL Logic</h2>
+  <table>
+    <thead>
+      <tr><th>Route</th><th>View</th><th>Business Use</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>/tickets/</code></td><td><code>ticket_list</code></td><td>User-facing ticket list and request tracking.</td></tr>
+      <tr><td><code>/tickets/new/</code></td><td><code>create_ticket</code></td><td>New Request chooser and standard ticket/incident intake.</td></tr>
+      <tr><td><code>/tickets/cbs-access-request/</code></td><td><code>cbs_access_request</code></td><td>Head Office CBS access request.</td></tr>
+      <tr><td><code>/tickets/cbs-access-request/branch/</code></td><td><code>cbs_access_branch_request</code></td><td>Branch CBS access request.</td></tr>
+      <tr><td><code>/tickets/remote-access-request/</code></td><td><code>remote_access_request</code></td><td>Remote access approval request.</td></tr>
+      <tr><td><code>/tickets/&lt;id&gt;/</code></td><td><code>ticket_detail</code></td><td>Ticket detail, approvals, chat, files, CBS/incident sections.</td></tr>
+      <tr><td><code>/tickets/&lt;id&gt;/remote-access-approval/</code></td><td><code>remote_access_approval_update</code></td><td>Approval/rejection actions for remote/CBS approval chains.</td></tr>
+      <tr><td><code>/tickets/&lt;id&gt;/incident-report/</code></td><td><code>ticket_incident_report</code></td><td>Create, edit, view, sign, and submit incident report.</td></tr>
+      <tr><td><code>/tickets/support/cbs-access/</code></td><td><code>support_cbs_access_requests</code></td><td>CBS queue for support and Central Operation.</td></tr>
+      <tr><td><code>/tickets/support/cbs-access/report.csv</code></td><td><code>support_cbs_access_report_export</code></td><td>CBS access CSV report export.</td></tr>
+      <tr><td><code>/tickets/support/&lt;id&gt;/update/</code></td><td><code>ticket_update</code></td><td>Support status, assignment, and resolution update.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>15. App Logic Change Checklist</h2>
+  <ul>
+    <li>For ticket form changes, update <code>TicketForm</code>, <code>create_ticket.html</code>, creation view validation, notification rules, and user guide.</li>
+    <li>For CBS workflow changes, update CBS form fields, description parsing/building, approval update logic, document generation, Central Operation actions, tests, and report export if fields change.</li>
+    <li>For incident report changes, update report model/form, sign-off formset, submit validation, download generation, correction behavior, and resolution blockers.</li>
+    <li>For permission changes, update visibility helpers, queue filters, chat access helpers, templates, and tests.</li>
+    <li>For email or notification changes, update the triggering view/helper, recipient logic, message body, and related tests.</li>
+  </ul>
+
+  <div class="footer">BESTSUPPORT Project Workflow Documentation - Application Logic Only</div>
+</body>
+</html>
