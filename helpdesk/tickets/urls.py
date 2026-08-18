@@ -49,6 +49,7 @@ urlpatterns = [
     path('support/', views.support_dashboard, name='support_dashboard'),
     path('support/department/', views.support_department_tickets, name='support_department_tickets'),
     path('support/cbs-access/', views.support_cbs_access_requests, name='support_cbs_access_requests'),
+    path('support/cbs-access/report.csv', views.support_cbs_access_report_export, name='support_cbs_access_report_export'),
     path('support/incidents/', views.support_incident_tickets, name='support_incident_tickets'),
     path('support/users/', views.support_users, name='support_users'),
     path('support/queue/', views.support_queue, name='support_queue'),

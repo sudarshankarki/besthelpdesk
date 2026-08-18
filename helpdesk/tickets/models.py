@@ -6,6 +6,7 @@ import uuid
 from datetime import timedelta
 
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.db import IntegrityError
 from django.db import models
@@ -1055,11 +1056,13 @@ class RemoteAccessApproval(models.Model):
     STATUS_PENDING_RECOMMENDATION = "pending_recommendation"
     STATUS_PENDING_APPROVAL = "pending_approval"
     STATUS_APPROVED = "approved"
+    STATUS_RETURNED = "returned"
     STATUS_REJECTED = "rejected"
     STATUS_CHOICES = [
         (STATUS_PENDING_RECOMMENDATION, "Pending Recommendation"),
         (STATUS_PENDING_APPROVAL, "Pending Approval"),
         (STATUS_APPROVED, "Approved"),
+        (STATUS_RETURNED, "Returned"),
         (STATUS_REJECTED, "Rejected"),
     ]
 
@@ -1213,8 +1216,8 @@ class RemoteAccessApproval(models.Model):
             return "Not Required"
         if self.status == self.STATUS_PENDING_RECOMMENDATION:
             return "Pending"
-        if self.status == self.STATUS_REJECTED and self.recommended_by_id and not self.decided_by_id:
-            return "Rejected"
+        if self.status in {self.STATUS_RETURNED, self.STATUS_REJECTED} and self.recommended_by_id and not self.decided_by_id:
+            return self.get_status_display()
         if self.recommended_by_id:
             return "Recommended"
         return "Pending"
@@ -1227,9 +1230,9 @@ class RemoteAccessApproval(models.Model):
             return "Pending"
         if self.status == self.STATUS_APPROVED:
             return "Approved"
-        if self.status == self.STATUS_REJECTED and self.decided_by_id:
-            return "Rejected"
-        if self.status == self.STATUS_REJECTED:
+        if self.status in {self.STATUS_RETURNED, self.STATUS_REJECTED} and self.decided_by_id:
+            return self.get_status_display()
+        if self.status in {self.STATUS_RETURNED, self.STATUS_REJECTED}:
             return "Not Reached"
         return "Pending"
 
@@ -1249,7 +1252,7 @@ class RemoteAccessApproval(models.Model):
 
     def record_decision(self, decision, actor, note=""):
         normalized_decision = (decision or "").strip().lower()
-        if normalized_decision not in {self.STATUS_APPROVED, self.STATUS_REJECTED}:
+        if normalized_decision not in {self.STATUS_APPROVED, self.STATUS_RETURNED, self.STATUS_REJECTED}:
             raise ValueError("Invalid remote access approval decision.")
         if not self.can_decide(actor):
             raise PermissionError("This user cannot decide the current remote access stage.")
@@ -1262,13 +1265,14 @@ class RemoteAccessApproval(models.Model):
                 self.recommendation_note = normalized_note
                 self.recommended_at = decided_at
                 self.recommended_by = actor
-                self.status = (
-                    self.STATUS_PENDING_RECOMMENDATION
-                    if normalized_decision == self.STATUS_APPROVED and self.second_recommender_id
-                    else self.STATUS_PENDING_APPROVAL
-                    if normalized_decision == self.STATUS_APPROVED
-                    else self.STATUS_REJECTED
-                )
+                if normalized_decision == self.STATUS_APPROVED:
+                    self.status = (
+                        self.STATUS_PENDING_RECOMMENDATION
+                        if self.second_recommender_id
+                        else self.STATUS_PENDING_APPROVAL
+                    )
+                else:
+                    self.status = normalized_decision
                 update_fields.extend(["recommendation_note", "recommended_at", "recommended_by"])
                 if normalized_decision == self.STATUS_APPROVED:
                     self.copy_signature_snapshot("recommended_signature_snapshot", actor, save=False)
@@ -1281,7 +1285,7 @@ class RemoteAccessApproval(models.Model):
                 self.status = (
                     self.STATUS_PENDING_APPROVAL
                     if normalized_decision == self.STATUS_APPROVED
-                    else self.STATUS_REJECTED
+                    else normalized_decision
                 )
                 update_fields.extend(["second_recommendation_note", "second_recommended_at", "second_recommended_by"])
                 if normalized_decision == self.STATUS_APPROVED:
@@ -1424,6 +1428,15 @@ def get_ticket_chat_access_user_ids(ticket, actor_user_id):
         user_ids = _cbs_access_chat_user_ids(ticket, approval)
     else:
         user_ids = [ticket.created_by_id, ticket.assigned_to_id]
+        if not getattr(ticket, "assigned_to_id", None) and not getattr(ticket, "chat_is_private", False):
+            support_users = get_user_model().objects.filter(is_active=True).filter(
+                models.Q(is_staff=True) | models.Q(is_superuser=True) | models.Q(is_itsupport=True)
+            )
+            user_ids.extend(
+                user.id
+                for user in support_users
+                if _is_ticket_department_member(user, ticket)
+            )
     targets = []
     for user_id in user_ids:
         if not user_id or user_id == actor_user_id or user_id in targets:

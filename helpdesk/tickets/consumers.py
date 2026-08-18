@@ -142,7 +142,7 @@ class TicketChatConsumer(AsyncWebsocketConsumer):
 
     @sync_to_async
     def _get_chat_locked_error(self, ticket_id):
-        ticket = Ticket.objects.only("status").filter(id=ticket_id).first()
+        ticket = Ticket.objects.select_related("remote_access_approval").filter(id=ticket_id).first()
         if not ticket or not is_ticket_chat_locked(ticket):
             return ""
         return ticket_chat_locked_message(ticket)
@@ -352,7 +352,7 @@ class TicketCallConsumer(AsyncWebsocketConsumer):
 
     @sync_to_async
     def _get_chat_locked_error(self, ticket_id):
-        ticket = Ticket.objects.only("status").filter(id=ticket_id).first()
+        ticket = Ticket.objects.select_related("remote_access_approval").filter(id=ticket_id).first()
         if not ticket or not is_ticket_chat_locked(ticket):
             return ""
         return ticket_chat_locked_message(ticket)

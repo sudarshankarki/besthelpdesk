@@ -90,6 +90,9 @@
             {% if has_active_filters %}
                 <a href="{{ clear_url }}" class="btn btn-sm btn-outline-secondary">Clear</a>
             {% endif %}
+            {% if export_url %}
+                <a href="{{ export_url }}" class="btn btn-sm btn-primary">{{ export_label|default:"Download Report" }}</a>
+            {% endif %}
         </form>
     </div>
 </div>

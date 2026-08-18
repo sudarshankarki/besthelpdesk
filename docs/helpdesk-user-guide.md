@@ -9,7 +9,7 @@ Sign in to the helpdesk portal before creating or tracking any request.
 Common pages:
 
 - `Dashboard`: Starting point after login.
-- `New Ticket`: Create service, access, change, or incident tickets.
+- `New Ticket` / `New Request`: Choose the request type first, then create a general support, CBS access, remote access, or incident request.
 - `My Tickets`: View tickets you created, tickets assigned to you, department queue tickets, CBS approvals, and incident reports where you are a signer.
 - `Ticket Detail`: View full ticket information, status, attachments, chat, approvals, and report links.
 
@@ -17,14 +17,14 @@ Common pages:
 
 When creating a request, choose the request type carefully:
 
-- `Service Request`: Use this for normal support work, such as help with a device, application, printer, email, or routine IT service.
+- `General Support`: Use this for normal service tickets such as help with a device, application, printer, email, or routine IT service. The standard form defaults to `Service Request`.
 - `Access Request`: Use this for general access that is not CBS access.
-- `CBS Access Request (Head Office)`: Use this for Head Office CBS user ID creation or amendment.
-- `CBS Access Request (Branch)`: Use this for Branch CBS user ID creation or amendment.
-- `Incident`: Use this when something has failed, caused business impact, affected systems, or needs formal incident tracking.
+- `CBS Access`: Opens Head Office and Branch options for CBS user ID creation or amendment.
+- `Remote Access`: Use this for remote access approval requests.
+- `Incident Report`: Use this when something has failed, caused business impact, affected systems, or needs formal incident tracking.
 - `Change`: Use this for planned changes.
 
-CBS access request types open a dedicated CBS form instead of the normal ticket form.
+CBS access and remote access request types open dedicated forms instead of the standard general support form.
 
 ## 3. How to Create a Service Ticket
 
@@ -32,17 +32,18 @@ Use this flow for regular helpdesk support requests.
 
 1. Open `Dashboard` or the left sidebar.
 2. Click `New Ticket`.
-3. Enter a short, clear `Subject`.
-4. Set `Request Type` to `Service Request`.
-5. Select the responsible `Department`, if known.
-6. Select the `Branch`, if applicable.
-7. Use `Assign To Email` only when one specific portal user should own the ticket.
-8. Use `Notify Email` when a person or group mailbox should receive the email notification.
-9. Add `CC Emails` if other users only need to stay informed.
-10. Write a clear `Description`.
-11. Choose `Impact` and `Urgency`.
-12. Attach screenshots or supporting documents if needed.
-13. Click `Submit Ticket`.
+3. On the `New Request` page, choose `General Support`.
+4. Enter a short, clear `Subject`.
+5. Leave `Request Type` as `Service Request`, or choose another standard type if required.
+6. Select the responsible `Department`.
+7. Select the responsible `Branch`. Branch options may depend on the selected department.
+8. Use `Assign To Email` only when one specific portal user should own the ticket. Suggestions follow the selected department and branch.
+9. Use `Notify Email` when a person or group mailbox should receive the email notification. Some departments may provide a default group mailbox.
+10. Use `Suggested CC Recipients` or type `CC Emails` if other users only need to stay informed.
+11. Write a clear `Description`.
+12. Choose `Impact` and `Urgency`.
+13. Attach screenshots or supporting documents if needed.
+14. Click `Submit Ticket`.
 
 After submission, the system creates a ticket ID such as `BFC-XXXXXXXXXX`, sets the initial status to `New`, calculates priority from impact and urgency, and sends notification emails.
 
@@ -80,29 +81,28 @@ Important rules:
 Use this flow when a user needs CBS access or an amendment to an existing CBS user ID.
 
 1. Open `New Ticket`.
-2. In `Request Type`, choose one of:
-   - `CBS Access Request (Head Office)`
-   - `CBS Access Request (Branch)`
-3. The system opens the dedicated CBS Access Request form.
+2. On the `New Request` page, find `CBS Access`.
+3. Choose `Head Office` or `Branch`. The system opens the dedicated CBS Access Request form for that office type.
 4. Fill the user information:
    - Name
    - Designation
    - Department or branch/department
    - Employee ID
-   - User who needs CBS access
+   - User who needs CBS access / acknowledgement signature
 5. Select `Type of User`:
    - `New User`
    - `Amendment for Old User`
 6. If this is an amendment, enter the old CBS user ID and reason for amendment.
 7. Select all required CBS user groups.
-8. Confirm the endorsement checkbox.
-9. Select `Assign To After Approval (CBS ACCESS PROVIDER)`, the concerned CBS access provider who should receive the ticket after final approval.
-10. Select the digital sign-off chain:
+8. Confirm the `I acknowledge` endorsement checkbox.
+9. In `After Approval Assignment`, select `Assign To After Approval (CBS ACCESS PROVIDER)`, the concerned CBS access provider who should receive the ticket after final approval.
+10. Select `CC Users After Approval`, if other users should be copied when the approved CBS document is sent to the concerned CBS access provider.
+11. In `Digital Sign-Off Chain`, select the required signers:
    - Head Office: Recommender and Approver
    - Branch: Recommender, optional Second Recommender, and Approver
-11. Attach supporting documents if needed.
-12. Optional: click `Download Filled PDF` to preview or keep a filled copy.
-13. Click `Submit Request`.
+12. Attach supporting documents if needed.
+13. Optional: click `Blank DOC` to download a blank CBS template, or `Download Filled PDF` to preview or keep a filled copy of the completed request.
+14. Click `Submit Request`.
 
 The requester and selected CBS access user must have admin-uploaded profile signatures where required, because the system captures signatures from user profiles.
 
@@ -140,6 +140,16 @@ After final CBS approval:
 6. The ticket can then be closed.
 
 The approved signed document can be downloaded from the ticket detail page.
+
+### Central Operation CBS Access Report
+
+Central Operation users can keep a later record of CBS access work from the `CBS Access Requests` page.
+
+1. Open `CBS Access Requests`.
+2. Use filters such as ticket ID, branch, department, status, assigned user, or date range if needed.
+3. Click `Download CBS Access Report`.
+
+The report downloads as CSV and includes the ticket ID, status, dates, access user name, access user ID, employee ID, designation, branch/department, type of user, old CBS user ID, CBS access groups provided, requested by, approved by, concerned user, and resolution note.
 
 ## 6. How to Create an Incident Ticket
 
@@ -294,7 +304,8 @@ For CBS access requests:
 5. If the request is approved, the requester receives an approval notification.
 6. If the request is rejected, the requester receives a rejection notification and can use `Edit & Resubmit`.
 7. After final approval, the system automatically assigns the CBS request to the concerned user / CBS access provider selected on the CBS form. That assignee receives an assignment email with the signed document attached.
-8. When support resolves the CBS ticket, the requester receives the resolution email. Support should include the CBS User ID or completion detail in the resolution note.
+8. If `CC Users After Approval` were selected, those users are copied on the approved CBS assignment email. The approved document shows the after-approval CC email addresses as normal comma-separated addresses.
+9. When support resolves the CBS ticket, the requester receives the resolution email. Support should include the CBS User ID or completion detail in the resolution note.
 
 ### Incident Mail Flow
 
